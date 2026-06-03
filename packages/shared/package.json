@@ -1,0 +1,19 @@
+{
+  "name": "@src-audit/shared",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "pg": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "prisma": "^7.8.0"
+  }
+}

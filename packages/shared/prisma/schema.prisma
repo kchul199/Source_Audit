@@ -1,0 +1,79 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  name           String
+  repoUrl        String   @unique
+  githubAppId    String?
+  installationId String?
+  audits         Audit[]
+  createdAt      DateTime @default(now())
+}
+
+model Audit {
+  id              String           @id @default(cuid())
+  projectId       String
+  project         Project          @relation(fields: [projectId], references: [id])
+  event           String           // e.g., "pull_request", "push"
+  ref             String           // e.g., PR number or branch name
+  commitHash      String
+  status          AuditStatus      @default(PENDING)
+  analysisResults AnalysisResult[]
+  testResults     TestResult[]
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime         @default(now())
+}
+
+enum AuditStatus {
+  PENDING
+  ANALYZING
+  GENERATING_TESTS
+  EXECUTING_SANDBOX
+  COMPLETED
+  FAILED
+}
+
+model AnalysisResult {
+  id          String   @id @default(cuid())
+  auditId     String
+  audit       Audit    @relation(fields: [auditId], references: [id])
+  category    String   // "SECURITY", "PERFORMANCE", "MAINTAINABILITY"
+  severity    String   // "CRITICAL", "HIGH", "MEDIUM", "LOW"
+  filePath    String
+  lineRange   String?
+  description String
+  suggestion  String?  // Proposed code fix
+  createdAt   DateTime @default(now())
+}
+
+model TestResult {
+  id             String    @id @default(cuid())
+  auditId        String
+  audit          Audit     @relation(fields: [auditId], references: [id])
+  testCode       String
+  status         TestStatus @default(RUNNING)
+  exitCode       Int?
+  stdout         String?
+  stderr         String?
+  iterationCount Int       @default(1)
+  errorAnalysis  String?   // AI's analysis of failure
+  createdAt      DateTime  @default(now())
+}
+
+enum TestStatus {
+  RUNNING
+  PASSED
+  FAILED
+  HEALED
+  TIMEOUT
+}

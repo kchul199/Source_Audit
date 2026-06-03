@@ -1,0 +1,29 @@
+{
+  "name": "@src-audit/agent-worker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node -r ts-node/register -r tsconfig-paths/register src/index.ts",
+    "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node -r tsconfig-paths/register' src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@octokit/rest": "^22.0.1",
+    "@src-audit/shared": "^1.0.0",
+    "bullmq": "^5.78.0",
+    "dockerode": "^5.0.0",
+    "dotenv": "^17.4.2",
+    "ioredis": "^5.11.0",
+    "octokit": "^5.0.5",
+    "openai": "^6.41.0"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@types/node": "^25.9.1"
+  }
+}

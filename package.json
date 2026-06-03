@@ -1,0 +1,28 @@
+{
+  "name": "src-audit",
+  "scripts": {
+    "dev:webhook": "nodemon --watch 'apps/webhook-server/src/**/*.ts' --exec 'ts-node -r tsconfig-paths/register --project tsconfig.json' apps/webhook-server/src/index.ts",
+    "dev:worker": "nodemon --watch 'apps/agent-worker/src/**/*.ts' --exec 'ts-node -r tsconfig-paths/register --project tsconfig.json' apps/agent-worker/src/index.ts",
+    "prisma:generate": "npm run generate --workspace=@src-audit/shared",
+    "prisma:migrate": "npm run migrate --workspace=@src-audit/shared"
+  },
+  "type": "commonjs",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "apps/*",
+    "packages/*"
+  ],
+  "private": "true",
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "nodemon": "^3.1.14",
+    "prisma": "^7.8.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.8.0"
+  }
+}
