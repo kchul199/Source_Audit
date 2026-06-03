@@ -1,18 +1,21 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: src-audit-postgres
     restart: always
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: src_audit
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-src_audit}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-src_audit}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -20,6 +23,11 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   webhook-server:
     build:
@@ -28,11 +36,18 @@ services:
     container_name: src-audit-webhook
     command: npm run dev:webhook
     env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-src_audit}?schema=public"
+      REDIS_URL: "redis://redis:6379"
     ports:
       - "3001:3001"
+    volumes:
+      - ./src-audit.config.json:/usr/src/app/src-audit.config.json
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   agent-worker:
     build:
@@ -41,19 +56,23 @@ services:
     container_name: src-audit-worker
     command: npm run dev:worker
     env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-src_audit}?schema=public"
+      REDIS_URL: "redis://redis:6379"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   portal:
     build:
       context: ./apps/portal
     container_name: src-audit-portal
     ports:
-      - "5173:5173"
-    env_file: .env
+      - "80:80"
     depends_on:
       - webhook-server
 

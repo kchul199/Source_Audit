@@ -1,83 +1,258 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchProjects } from '../api/client';
-import { FolderCode, ArrowRight, ExternalLink } from 'lucide-react';
+import {
+  FolderCode, ArrowRight, ExternalLink, AlertTriangle,
+  GitPullRequest, Shield, TrendingUp, Boxes,
+} from 'lucide-react';
+import type { Project } from '../types';
+
+/* ── Skeleton Card ── */
+const SkeletonCard: React.FC = () => (
+  <div className="rounded-2xl p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
+    <div className="flex justify-between mb-6">
+      <div className="skeleton w-12 h-12 rounded-xl" />
+      <div className="skeleton w-6 h-6 rounded-lg" />
+    </div>
+    <div className="skeleton h-5 w-32 mb-2" />
+    <div className="skeleton h-3 w-48 mb-6" />
+    <div className="skeleton h-10 w-full rounded-xl" />
+  </div>
+);
+
+/* ── Stat Card ── */
+const StatCard: React.FC<{
+  label: string;
+  value: string | number;
+  icon: React.ElementType;
+  gradient: string;
+  delay: number;
+}> = ({ label, value, icon: Icon, gradient, delay }) => (
+  <div
+    className="rounded-2xl p-6 relative overflow-hidden animate-fade-in-up"
+    style={{
+      background: 'var(--bg-card)',
+      border: '1px solid var(--border-subtle)',
+      animationDelay: `${delay}ms`,
+    }}
+  >
+    {/* Background gradient orb */}
+    <div
+      className="absolute -top-6 -right-6 w-24 h-24 rounded-full opacity-20 blur-2xl"
+      style={{ background: gradient }}
+    />
+    <div className="relative z-10">
+      <div
+        className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
+        style={{ background: gradient, opacity: 0.15 }}
+      >
+        <Icon size={20} style={{ color: gradient.includes('99,102,241') ? 'var(--accent)' : gradient.includes('52,211,153') ? 'var(--success)' : 'var(--info)' }} />
+      </div>
+      <p className="text-xs font-semibold uppercase tracking-widest mb-1"
+        style={{ color: 'var(--text-muted)' }}>
+        {label}
+      </p>
+      <p className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+        {value}
+      </p>
+    </div>
+  </div>
+);
 
 export const ProjectsPage: React.FC = () => {
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProjects()
       .then(setProjects)
+      .catch((err: any) => setError(err.message || 'Failed to fetch projects'))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center py-20 animate-pulse">
-      <div className="w-12 h-12 bg-slate-700 rounded-full mb-4"></div>
-      <div className="h-4 w-32 bg-slate-700 rounded"></div>
+  if (error) return (
+    <div className="flex flex-col items-center justify-center py-32 animate-fade-in">
+      <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-6"
+        style={{ background: 'rgba(248,113,113,0.1)' }}>
+        <AlertTriangle size={28} style={{ color: 'var(--danger)' }} />
+      </div>
+      <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Failed to load projects</h3>
+      <p className="text-sm mb-8" style={{ color: 'var(--text-tertiary)' }}>{error}</p>
+      <button
+        onClick={() => {
+          setError(null);
+          setLoading(true);
+          fetchProjects()
+            .then(setProjects)
+            .catch((e: any) => setError(e.message || 'Failed to fetch projects'))
+            .finally(() => setLoading(false));
+        }}
+        className="px-6 py-2.5 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"
+        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+      >
+        Try Again
+      </button>
     </div>
   );
 
   return (
     <div>
-      <div className="mb-10">
-        <h1 className="text-3xl font-bold mb-2">Project Dashboard</h1>
-        <p className="text-slate-400">Manage and monitor your automated code audits.</p>
+      {/* Page Header */}
+      <div className="mb-10 animate-fade-in-up">
+        <div className="flex items-center gap-3 mb-1">
+          <h1 className="text-2xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+            Dashboard
+          </h1>
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+            style={{ background: 'rgba(52,211,153,0.1)', color: 'var(--success)' }}>
+            <span className="w-1.5 h-1.5 rounded-full live-dot" style={{ background: 'var(--success)' }} />
+            Live
+          </span>
+        </div>
+        <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+          Monitor your repositories and automated code audits in real time.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-          <p className="text-slate-400 text-sm font-medium mb-1">Total Projects</p>
-          <p className="text-3xl font-bold text-indigo-400">{projects.length}</p>
-        </div>
-        <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-          <p className="text-slate-400 text-sm font-medium mb-1">Active Monitoring</p>
-          <p className="text-3xl font-bold text-emerald-400">Live</p>
-        </div>
-        <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-          <p className="text-slate-400 text-sm font-medium mb-1">System Status</p>
-          <p className="text-3xl font-bold text-blue-400">Healthy</p>
-        </div>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-12 stagger-children">
+        <StatCard
+          label="Projects"
+          value={loading ? '—' : projects.length}
+          icon={Boxes}
+          gradient="rgba(99,102,241,0.8)"
+          delay={0}
+        />
+        <StatCard
+          label="Total Audits"
+          value={loading ? '—' : projects.reduce((sum, p) => sum + (p._count?.audits || 0), 0)}
+          icon={Shield}
+          gradient="rgba(52,211,153,0.8)"
+          delay={80}
+        />
+        <StatCard
+          label="System"
+          value="Healthy"
+          icon={TrendingUp}
+          gradient="rgba(96,165,250,0.8)"
+          delay={160}
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {projects.length === 0 ? (
-          <div className="col-span-full py-20 text-center bg-slate-800/30 rounded-3xl border border-dashed border-slate-700">
-            <FolderCode size={48} className="mx-auto text-slate-600 mb-4" />
-            <p className="text-slate-500">No projects registered yet. Send a GitHub webhook to get started!</p>
+      {/* Section Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+          Repositories
+        </h2>
+        <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+          {projects.length} registered
+        </span>
+      </div>
+
+      {/* Projects Grid */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[0, 1, 2].map((i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : projects.length === 0 ? (
+        <div
+          className="rounded-3xl py-24 text-center animate-fade-in"
+          style={{ background: 'var(--bg-card)', border: '2px dashed var(--border-medium)' }}
+        >
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6"
+            style={{ background: 'var(--bg-surface)' }}>
+            <FolderCode size={28} style={{ color: 'var(--text-muted)' }} />
           </div>
-        ) : (
-          projects.map((project) => (
-            <div key={project.id} className="bg-slate-800 rounded-2xl p-6 border border-slate-700 hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/10 transition-all group">
-              <div className="flex justify-between items-start mb-6">
-                <div className="bg-indigo-500/10 p-3 rounded-xl text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white transition-all">
-                  <FolderCode size={24} />
-                </div>
-                <a 
-                  href={project.repoUrl} 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="p-2 text-slate-500 hover:text-white hover:bg-slate-700 rounded-lg transition-all"
-                  onClick={(e) => e.stopPropagation()}
+          <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+            No projects yet
+          </h3>
+          <p className="text-sm max-w-sm mx-auto" style={{ color: 'var(--text-tertiary)' }}>
+            Send a GitHub webhook event to automatically register your first project.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 stagger-children">
+          {projects.map((project) => (
+            <div
+              key={project.id}
+              className="rounded-2xl p-6 transition-all group hover-glow"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}
+            >
+              <div className="flex justify-between items-start mb-5">
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center transition-all"
+                  style={{
+                    background: 'rgba(99,102,241,0.1)',
+                    color: 'var(--accent)',
+                  }}
                 >
-                  <ExternalLink size={18} />
+                  <FolderCode size={22} />
+                </div>
+                <a
+                  href={project.repoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-2 rounded-lg transition-all"
+                  style={{ color: 'var(--text-muted)' }}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                    e.currentTarget.style.background = 'var(--bg-surface)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  <ExternalLink size={16} />
                 </a>
               </div>
-              <h2 className="text-xl font-bold mb-1 group-hover:text-indigo-300 transition-colors">{project.name}</h2>
-              <p className="text-slate-500 text-xs font-mono mb-6 truncate">{project.repoUrl}</p>
-              <Link 
-                to={`/audits?projectId=${project.id}`} 
-                className="flex items-center justify-between w-full p-3 bg-slate-700/50 rounded-xl text-indigo-300 font-semibold group-hover:bg-indigo-600 group-hover:text-white transition-all"
+
+              <h3 className="text-base font-bold mb-1 transition-colors"
+                style={{ color: 'var(--text-primary)' }}>
+                {project.name}
+              </h3>
+              <p className="text-xs font-mono mb-4 truncate" style={{ color: 'var(--text-muted)' }}>
+                {project.repoUrl}
+              </p>
+
+              {/* Stats row */}
+              <div className="flex items-center gap-4 mb-5">
+                {project._count && (
+                  <div className="flex items-center gap-1.5">
+                    <GitPullRequest size={13} style={{ color: 'var(--text-muted)' }} />
+                    <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      {project._count.audits} audit{project._count.audits !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <Link
+                to={`/audits?projectId=${project.id}`}
+                className="flex items-center justify-between w-full px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--accent)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(99,102,241,0.15)';
+                  e.currentTarget.style.borderColor = 'var(--border-accent)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--bg-surface)';
+                  e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                }}
               >
                 <span>View Audits</span>
-                <ArrowRight size={18} />
+                <ArrowRight size={16} />
               </Link>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

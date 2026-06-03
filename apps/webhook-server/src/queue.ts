@@ -10,9 +10,17 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379'
   maxRetriesPerRequest: null,
 });
 
+export interface AuditTaskData {
+  auditId: string;
+  repo: string;
+  commitHash: string;
+  prNumber?: number;
+  ref?: string;
+}
+
 export const agentQueue = new Queue('agent-queue', { connection: connection as any });
 
-export async function enqueueAuditTask(data: any) {
+export async function enqueueAuditTask(data: AuditTaskData) {
   await agentQueue.add('analyze-code', data, {
     attempts: 3,
     backoff: {

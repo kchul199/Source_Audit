@@ -1,10 +1,8 @@
 import OpenAI from 'openai';
-import dotenv from 'dotenv';
-import path from 'path';
 import { db } from '@src-audit/shared';
+import { createLogger } from '@src-audit/shared';
 
-// Load .env from root
-dotenv.config({ path: path.join(process.cwd(), '.env') });
+const log = createLogger('agent');
 
 export class OpenAIAgent {
   private openai: OpenAI;
@@ -16,21 +14,25 @@ export class OpenAIAgent {
   }
 
   async analyzeCode(auditId: string, repo: string, diff: string, context?: string) {
-    console.log(`Analyzing code for Audit ${auditId}...`);
+    log.info('Starting code analysis', { auditId, repo });
 
     const prompt = `
-You are a Senior Software Architect and Security Expert.
+You are a Senior Software Architect and Quality Assurance Expert.
 Analyze the following code changes (diff) from the repository "${repo}".
 
 ${context ? `ADDITIONAL PROJECT CONTEXT/INSTRUCTIONS:\n${context}\n` : ''}
 
 Provide a detailed code review focusing on:
-1. SECURITY: Potential vulnerabilities (SQL injection, XSS, secrets exposure).
-2. PERFORMANCE: Inefficiency, memory leaks, redundant calls.
-3. MAINTAINABILITY: Clean code, naming, logic complexity.
+1. SECURITY: Potential vulnerabilities (SQL injection, XSS, secrets exposure, dependency risks).
+2. PERFORMANCE: Inefficiency, memory leaks, redundant calls, CPU/IO blocks.
+3. MAINTAINABILITY: Clean code, readability, naming, complex logic, documentation.
+4. STABILITY: Exception handling, race conditions, concurrency issues, edge cases, potential crashes.
+5. FLEXIBILITY: Hardcoded variables/parameters, tightly coupled components, configuration extraction needs.
+6. EXTENSIBILITY: Monolithic design, tight cohesion blocks, OOP/functional patterns, architectural extension limits.
+7. ERROR_PRONE: Syntax typos, API misuse/anti-patterns, incorrect conditional statements, logical flaws.
 
 For each finding, provide:
-- Category (SECURITY, PERFORMANCE, MAINTAINABILITY)
+- Category (SECURITY, PERFORMANCE, MAINTAINABILITY, STABILITY, FLEXIBILITY, EXTENSIBILITY, ERROR_PRONE)
 - Severity (CRITICAL, HIGH, MEDIUM, LOW)
 - File path
 - Description of the issue
@@ -45,6 +47,13 @@ Example:
     "filePath": "src/auth.ts",
     "description": "Hardcoded API key detected.",
     "suggestion": "Use environment variables."
+  },
+  {
+    "category": "STABILITY",
+    "severity": "MEDIUM",
+    "filePath": "src/service.ts",
+    "description": "Uncaught exception in async block could crash the process.",
+    "suggestion": "Wrap inside try-catch block."
   }
 ]
 
@@ -61,28 +70,72 @@ ${diff}
     const content = response.choices[0].message.content;
     if (!content) throw new Error('AI returned empty response');
 
-    const resultsRaw = JSON.parse(content);
-    const results = Array.isArray(resultsRaw) ? resultsRaw : resultsRaw.findings || resultsRaw.results || [];
+    // Graceful JSON parsing with fallback extraction
+    let results: Array<{
+      category: string;
+      severity: string;
+      filePath: string;
+      description: string;
+      suggestion?: string;
+    }>;
 
-    // Store analysis results in DB
-    for (const result of results) {
-      await db.analysisResult.create({
-        data: {
+    try {
+      const resultsRaw = JSON.parse(content);
+      results = Array.isArray(resultsRaw)
+        ? resultsRaw
+        : resultsRaw.findings || resultsRaw.results || [];
+    } catch (parseError) {
+      log.warn('Failed to parse AI response as JSON, attempting extraction...', {
+        auditId,
+        error: String(parseError),
+      });
+      // Attempt to extract JSON array from the response
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        try {
+          results = JSON.parse(jsonMatch[0]);
+        } catch {
+          results = [];
+        }
+      } else {
+        results = [];
+      }
+
+      // Record parsing failure for manual review
+      if (results.length === 0) {
+        await db.analysisResult.create({
+          data: {
+            auditId,
+            category: 'SYSTEM',
+            severity: 'LOW',
+            filePath: 'N/A',
+            description: 'AI 응답 JSON 파싱 실패 — 수동 검토 필요',
+            suggestion: content.substring(0, 1000),
+          },
+        });
+      }
+    }
+
+    // Batch insert with createMany for performance
+    if (results.length > 0) {
+      await db.analysisResult.createMany({
+        data: results.map((r) => ({
           auditId,
-          category: result.category,
-          severity: result.severity,
-          filePath: result.filePath,
-          description: result.description,
-          suggestion: result.suggestion,
-        },
+          category: r.category || 'UNKNOWN',
+          severity: r.severity || 'LOW',
+          filePath: r.filePath || 'unknown',
+          description: r.description || '',
+          suggestion: r.suggestion ?? null,
+        })),
       });
     }
 
+    log.info('Code analysis completed', { auditId, findingsCount: results.length });
     return results;
   }
 
   async generateTestCode(auditId: string, repo: string, diff: string, context?: string) {
-    console.log(`Generating test code for Audit ${auditId}...`);
+    log.info('Generating test code', { auditId, repo });
 
     const prompt = `
 You are an expert QA Engineer. 
@@ -108,8 +161,10 @@ ${diff}
     const testCode = response.choices[0].message.content;
     if (!testCode) throw new Error('AI failed to generate test code');
 
-    // Clean up markdown code blocks if present
-    const cleanedCode = testCode.replace(/```typescript|```javascript|```/g, '').trim();
+    // Clean up markdown code blocks if present (multiple language patterns)
+    const cleanedCode = testCode
+      .replace(/```(?:typescript|javascript|python|go|ts|js|py)?\n?/g, '')
+      .trim();
 
     // Create initial test result in DB
     const testResult = await db.testResult.create({
@@ -120,11 +175,18 @@ ${diff}
       },
     });
 
+    log.info('Test code generated', { auditId, testResultId: testResult.id });
     return { testCode: cleanedCode, testResultId: testResult.id };
   }
 
-  async healTestCode(repo: string, diff: string, testCode: string, errorLogs: string, context?: string) {
-    console.log(`Healing test code...`);
+  async healTestCode(
+    repo: string,
+    diff: string,
+    testCode: string,
+    errorLogs: string,
+    context?: string,
+  ): Promise<{ healedCode: string; errorAnalysis: string }> {
+    log.info('Healing test code...', { repo });
 
     const prompt = `
 You are an expert QA Engineer. 
@@ -141,19 +203,45 @@ ${testCode}
 ERROR LOGS:
 ${errorLogs}
 
-Identify the root cause of the failure (e.g., missing mock, syntax error, incorrect assertion).
-Generate a corrected version of the test code that resolves these issues.
-Return ONLY the corrected code for the test file.
+First, analyze the root cause of the failure.
+Then, generate a corrected version of the test code.
+
+Return your response in this exact JSON format:
+{
+  "errorAnalysis": "Brief explanation of what went wrong",
+  "healedCode": "The full corrected test code"
+}
 `;
 
     const response = await this.openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
     });
 
-    const healedCode = response.choices[0].message.content;
-    if (!healedCode) throw new Error('AI failed to heal test code');
+    const content = response.choices[0].message.content;
+    if (!content) throw new Error('AI failed to heal test code');
 
-    return healedCode.replace(/```typescript|```javascript|```/g, '').trim();
+    try {
+      const parsed = JSON.parse(content);
+      const healedCode = (parsed.healedCode || parsed.code || content)
+        .replace(/```(?:typescript|javascript|python|go|ts|js|py)?\n?/g, '')
+        .trim();
+
+      return {
+        healedCode,
+        errorAnalysis: parsed.errorAnalysis || 'No analysis provided',
+      };
+    } catch {
+      // Fallback: treat entire response as code
+      const cleanedCode = content
+        .replace(/```(?:typescript|javascript|python|go|ts|js|py)?\n?/g, '')
+        .trim();
+
+      return {
+        healedCode: cleanedCode,
+        errorAnalysis: 'Failed to parse structured response — raw code extracted',
+      };
+    }
   }
 }

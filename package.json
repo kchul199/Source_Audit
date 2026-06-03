@@ -9,8 +9,6 @@
   "type": "commonjs",
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "apps/*",
     "packages/*"
   ],
   "private": "true",

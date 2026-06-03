@@ -1,12 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
-import dotenv from 'dotenv';
-import path from 'path';
 
-// Load .env from root using process.cwd() since we run from root
-dotenv.config({ path: path.join(process.cwd(), '.env') });
-
+// NOTE: dotenv must be loaded by the application entry point BEFORE importing this module.
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {

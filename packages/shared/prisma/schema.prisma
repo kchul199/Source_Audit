@@ -15,6 +15,16 @@ model Project {
   repoUrl        String   @unique
   githubAppId    String?
   installationId String?
+  
+  // Custom Configuration & Secrets
+  githubToken    String?
+  webhookSecret  String?
+  allowPRs       Boolean  @default(true)
+  allowPush      Boolean  @default(true)
+  adminUsers     String   @default("") // Comma-separated list of GitHub usernames
+  branchFilter   String   @default("*") // Comma-separated list of branches, or "*" for all
+  active         Boolean  @default(true)
+
   audits         Audit[]
   createdAt      DateTime @default(now())
 }
@@ -57,17 +67,33 @@ model AnalysisResult {
 }
 
 model TestResult {
-  id             String    @id @default(cuid())
-  auditId        String
-  audit          Audit     @relation(fields: [auditId], references: [id])
-  testCode       String
-  status         TestStatus @default(RUNNING)
-  exitCode       Int?
-  stdout         String?
-  stderr         String?
-  iterationCount Int       @default(1)
-  errorAnalysis  String?   // AI's analysis of failure
-  createdAt      DateTime  @default(now())
+  id                String              @id @default(cuid())
+  auditId           String
+  audit             Audit               @relation(fields: [auditId], references: [id])
+  testCode          String
+  status            TestStatus          @default(RUNNING)
+  exitCode          Int?
+  stdout            String?
+  stderr            String?
+  iterationCount    Int                 @default(1)
+  errorAnalysis     String?             // AI's analysis of failure
+  healingIterations HealingIteration[]
+  createdAt         DateTime            @default(now())
+}
+
+model HealingIteration {
+  id            String     @id @default(cuid())
+  testResultId  String
+  testResult    TestResult @relation(fields: [testResultId], references: [id], onDelete: Cascade)
+  iteration     Int
+  testCode      String
+  exitCode      Int?
+  stdout        String?
+  stderr        String?
+  errorAnalysis String?    // AI's analysis of why this iteration failed
+  createdAt     DateTime   @default(now())
+
+  @@index([testResultId])
 }
 
 enum TestStatus {
