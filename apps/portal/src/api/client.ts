@@ -1,4 +1,7 @@
-import type { Project, Audit, PaginatedResponse, DashboardStats } from '../types';
+import type {
+  Project, Audit, PaginatedResponse, DashboardStats,
+  WebhookEvent, TrendData, AuditCompareResult
+} from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -86,3 +89,21 @@ export async function exportConfigToConfigFile(): Promise<{ message: string }> {
   });
   return handleResponse<{ message: string }>(res);
 }
+
+export async function fetchWebhookEvents(page: number = 1, limit: number = 30): Promise<PaginatedResponse<WebhookEvent>> {
+  const res = await fetch(`${API_BASE_URL}/webhook-events?page=${page}&limit=${limit}`);
+  return handleResponse<PaginatedResponse<WebhookEvent>>(res);
+}
+
+export async function fetchStatsTrend(projectId?: string, range: string = '30d'): Promise<TrendData[]> {
+  const params = new URLSearchParams({ range });
+  if (projectId) params.set('projectId', projectId);
+  const res = await fetch(`${API_BASE_URL}/stats/trend?${params.toString()}`);
+  return handleResponse<TrendData[]>(res);
+}
+
+export async function fetchAuditCompare(leftId: string, rightId: string): Promise<AuditCompareResult> {
+  const res = await fetch(`${API_BASE_URL}/audits/compare?left=${leftId}&right=${rightId}`);
+  return handleResponse<AuditCompareResult>(res);
+}
+

@@ -6,9 +6,123 @@ import { useAuditContext } from '../context/AuditContext';
 import {
   ArrowLeft, RefreshCw, ShieldAlert, Zap, Settings,
   Code2, Terminal, AlertTriangle, CheckCircle2, History,
-  Activity, Loader2, Beaker, Sliders, Puzzle, Bug,
+  Activity, Loader2, Beaker, Sliders, Puzzle, Bug, Download
 } from 'lucide-react';
 import type { Audit, AnalysisResult, TestResult, HealingIteration } from '../types';
+
+/* ── Pure SVG Radar Chart Component ── */
+const RadarChart: React.FC<{ findings: AnalysisResult[] }> = ({ findings }) => {
+  const categories = [
+    { key: 'SECURITY', label: 'Security' },
+    { key: 'PERFORMANCE', label: 'Performance' },
+    { key: 'MAINTAINABILITY', label: 'Maintainability' },
+    { key: 'STABILITY', label: 'Stability' },
+    { key: 'FLEXIBILITY', label: 'Flexibility' },
+    { key: 'EXTENSIBILITY', label: 'Extensibility' },
+    { key: 'ERROR_PRONE', label: 'Error Prone' },
+  ];
+
+  const counts = categories.map(cat => ({
+    label: cat.label,
+    count: findings.filter(f => f.category === cat.key).length,
+  }));
+
+  const maxCount = Math.max(...counts.map(c => c.count), 1);
+  const size = 300;
+  const center = size / 2;
+  const radius = size * 0.35;
+
+  const getCoordinates = (index: number, value: number) => {
+    const angle = (Math.PI * 2 / 7) * index - Math.PI / 2;
+    const r = (value / maxCount) * radius;
+    const x = center + r * Math.cos(angle);
+    const y = center + r * Math.sin(angle);
+    return { x, y };
+  };
+
+  const gridLevels = [0.25, 0.5, 0.75, 1];
+  const gridPaths = gridLevels.map(level => {
+    const points = Array.from({ length: 7 }, (_, i) => {
+      const angle = (Math.PI * 2 / 7) * i - Math.PI / 2;
+      const x = center + (radius * level) * Math.cos(angle);
+      const y = center + (radius * level) * Math.sin(angle);
+      return `${x},${y}`;
+    }).join(' ');
+    return points;
+  });
+
+  const dataPoints = counts.map((c, i) => getCoordinates(i, c.count));
+  const dataPath = dataPoints.map(p => `${p.x},${p.y}`).join(' ');
+
+  return (
+    <div className="flex flex-col items-center justify-center p-6 bg-white rounded-2xl border" style={{ borderColor: 'rgba(15, 23, 42, 0.06)' }}>
+      <h3 className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: '#475569' }}>Quality Radar Analysis</h3>
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="overflow-visible" xmlns="http://www.w3.org/2000/svg">
+          {gridPaths.map((path, idx) => (
+            <polygon
+              key={idx}
+              points={path}
+              fill="none"
+              stroke="rgba(15, 23, 42, 0.06)"
+              strokeWidth="1"
+              strokeDasharray={idx < 3 ? "2 2" : "none"}
+            />
+          ))}
+          {Array.from({ length: 7 }).map((_, i) => {
+            const end = getCoordinates(i, maxCount);
+            return (
+              <line
+                key={i}
+                x1={center}
+                y1={center}
+                x2={end.x}
+                y2={end.y}
+                stroke="rgba(15, 23, 42, 0.06)"
+                strokeWidth="1"
+              />
+            );
+          })}
+          {findings.length > 0 && (
+            <polygon
+              points={dataPath}
+              fill="rgba(99,102,241,0.12)"
+              stroke="#4f46e5"
+              strokeWidth="2"
+            />
+          )}
+          {counts.map((c, i) => {
+            const labelPos = getCoordinates(i, maxCount + 0.35);
+            return (
+              <g key={i}>
+                <text
+                  x={labelPos.x}
+                  y={labelPos.y}
+                  textAnchor="middle"
+                  alignmentBaseline="middle"
+                  className="text-[10px] font-bold"
+                  style={{ fill: '#475569' }}
+                >
+                  {c.label} ({c.count})
+                </text>
+                {findings.length > 0 && (
+                  <circle
+                    cx={dataPoints[i].x}
+                    cy={dataPoints[i].y}
+                    r="3.5"
+                    fill="#4f46e5"
+                    stroke="#fff"
+                    strokeWidth="1"
+                  />
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+};
 
 export const AuditDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -55,6 +169,63 @@ export const AuditDetailPage: React.FC = () => {
       setError(err.message || 'Failed to retry audit');
     } finally {
       setRetrying(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    const element = document.getElementById('audit-report-content');
+    if (!element) return;
+    
+    const button = document.getElementById('export-pdf-btn');
+    if (button) {
+      button.innerText = 'Exporting...';
+      button.setAttribute('disabled', 'true');
+    }
+
+    try {
+      const html2canvasModule = await import('html2canvas');
+      const html2canvas = html2canvasModule.default;
+      
+      const jspdfModule = await import('jspdf');
+      const jsPDFClass = jspdfModule.jsPDF || jspdfModule.default;
+      if (!jsPDFClass) {
+        throw new Error('jsPDF could not be resolved from imports');
+      }
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDFClass('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const pageHeight = 295;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const filename = `src_audit_${audit?.project.name.toLowerCase()}_pr_${audit?.ref}.pdf`;
+      pdf.save(filename);
+    } catch (err: any) {
+      console.error('Failed to export PDF', err);
+      setError('PDF export failed. Please try again.');
+    } finally {
+      if (button) {
+        button.innerText = 'Export Report';
+        button.removeAttribute('disabled');
+      }
     }
   };
 
@@ -170,6 +341,14 @@ export const AuditDetailPage: React.FC = () => {
             <StatusBadge status={audit.status} />
           </div>
           <button
+            id="export-pdf-btn"
+            onClick={handleExportPDF}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold transition-all"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
+          >
+            <Download size={14} /> Export Report
+          </button>
+          <button
             onClick={handleRetry}
             disabled={retrying}
             className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20 text-white"
@@ -212,7 +391,12 @@ export const AuditDetailPage: React.FC = () => {
 
       {/* Analysis Results Tab */}
       {activeTab === 'analysis' ? (
-        <div className="grid grid-cols-1 gap-10">
+        <div id="audit-report-content" className="grid grid-cols-1 gap-10 bg-white p-6 rounded-3xl border border-slate-100">
+          {findings.length > 0 && (
+            <div className="flex justify-center">
+              <RadarChart findings={findings} />
+            </div>
+          )}
           {Object.keys(groupedFindings).length === 0 && (
             <div className="rounded-3xl p-32 text-center border-2 border-dashed" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-medium)' }}>
               <div className="bg-emerald-500/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">

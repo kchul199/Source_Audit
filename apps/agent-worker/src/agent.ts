@@ -13,8 +13,8 @@ export class OpenAIAgent {
     });
   }
 
-  async analyzeCode(auditId: string, repo: string, diff: string, context?: string) {
-    log.info('Starting code analysis', { auditId, repo });
+  async analyzeCode(auditId: string, repo: string, diff: string, context?: string, model: string = 'gpt-4o') {
+    log.info('Starting code analysis', { auditId, repo, model });
 
     const prompt = `
 You are a Senior Software Architect and Quality Assurance Expert.
@@ -62,7 +62,7 @@ ${diff}
 `;
 
     const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: model,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });
@@ -134,8 +134,8 @@ ${diff}
     return results;
   }
 
-  async generateTestCode(auditId: string, repo: string, diff: string, context?: string) {
-    log.info('Generating test code', { auditId, repo });
+  async generateTestCode(auditId: string, repo: string, diff: string, context?: string, model: string = 'gpt-4o') {
+    log.info('Generating test code', { auditId, repo, model });
 
     const prompt = `
 You are an expert QA Engineer. 
@@ -154,7 +154,7 @@ ${diff}
 `;
 
     const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: model,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -185,8 +185,9 @@ ${diff}
     testCode: string,
     errorLogs: string,
     context?: string,
+    model: string = 'gpt-4o'
   ): Promise<{ healedCode: string; errorAnalysis: string }> {
-    log.info('Healing test code...', { repo });
+    log.info('Healing test code...', { repo, model });
 
     const prompt = `
 You are an expert QA Engineer. 
@@ -214,7 +215,7 @@ Return your response in this exact JSON format:
 `;
 
     const response = await this.openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: model,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });

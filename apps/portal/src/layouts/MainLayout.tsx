@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import {
-  Shield, LayoutDashboard, Activity, Wifi, WifiOff, BarChart3, Settings,
+  Shield, LayoutDashboard, Activity, Wifi, WifiOff, BarChart3, Settings, Webhook
 } from 'lucide-react';
 import { useAuditContext } from '../context/AuditContext';
 
@@ -15,6 +15,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, matchPaths: ['/'] },
   { to: '/audits', label: 'Audit History', icon: Activity, matchPaths: ['/audits'] },
+  { to: '/webhook-events', label: 'Webhook Events', icon: Webhook, matchPaths: ['/webhook-events'] },
   { to: '/stats', label: 'Statistics', icon: BarChart3, matchPaths: ['/stats'] },
   { to: '/settings', label: 'Settings', icon: Settings, matchPaths: ['/settings'] },
 ];

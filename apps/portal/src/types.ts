@@ -20,6 +20,9 @@ export interface Project {
   adminUsers?: string;
   branchFilter?: string;
   active?: boolean;
+  customPromptRules?: string | null;
+  llmModel?: string;
+  enablePRComments?: boolean;
 }
 
 export type AuditStatus =
@@ -121,3 +124,59 @@ export interface DashboardStats {
   global: GlobalStats;
   projects: ProjectStats[];
 }
+
+export interface WebhookEvent {
+  id: string;
+  projectId: string | null;
+  event: string;
+  repo: string;
+  branch: string | null;
+  sender: string;
+  action: string;
+  outcome: 'ACCEPTED' | 'REJECTED' | 'FILTERED';
+  rejectReason: string | null;
+  auditId: string | null;
+  receivedAt: string;
+}
+
+export interface TrendData {
+  date: string;
+  Security: number;
+  Performance: number;
+  Maintainability: number;
+  Stability: number;
+  Flexibility: number;
+  Extensibility: number;
+  ErrorProne: number;
+  testSuccessRate: number;
+  avgHealingIterations: number;
+  totalAudits: number;
+}
+
+export interface AuditCompareResult {
+  left: {
+    id: string;
+    ref: string;
+    event: string;
+    commitHash: string;
+    createdAt: string;
+  };
+  right: {
+    id: string;
+    ref: string;
+    event: string;
+    commitHash: string;
+    createdAt: string;
+  };
+  comparison: {
+    resolved: AnalysisResult[];
+    added: AnalysisResult[];
+    unchanged: AnalysisResult[];
+    summary: {
+      newCount: number;
+      resolvedCount: number;
+      unchangedCount: number;
+    };
+  };
+}
+

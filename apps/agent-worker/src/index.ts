@@ -38,6 +38,92 @@ async function notifyStatus(auditId: string, status: string) {
   }
 }
 
+async function createGitHubCheck(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  commitHash: string,
+  findingsCount: number
+) {
+  try {
+    const conclusion = findingsCount > 0 ? 'failure' : 'success';
+    await octokit.rest.checks.create({
+      owner,
+      repo,
+      name: 'AI Code Audit',
+      head_sha: commitHash,
+      status: 'completed',
+      conclusion: conclusion,
+      completed_at: new Date().toISOString(),
+      output: {
+        title: findingsCount > 0 ? 'AI Audit: Issues Detected' : 'AI Audit: Passed',
+        summary: `AI Code Audit scanned the changes and found ${findingsCount} quality/security issues.`,
+      },
+    });
+    log.info('Successfully updated GitHub Check Run', { repo, commitHash, conclusion });
+  } catch (err: any) {
+    log.error('Failed to create/update GitHub Check Run', { error: err.message });
+  }
+}
+
+async function postPRComments(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  findings: any[]
+) {
+  if (findings.length === 0) return;
+
+  try {
+    const comments = findings
+      .filter((f) => f.filePath && f.filePath !== 'N/A')
+      .map((f) => {
+        let line = 1;
+        if (f.lineRange) {
+          const match = f.lineRange.match(/\d+/);
+          if (match) line = parseInt(match[0], 10);
+        }
+        return {
+          path: f.filePath,
+          line: line,
+          side: 'RIGHT' as const,
+          body: `### 🤖 AI Code Audit: ${f.category} (${f.severity})\n\n${f.description}\n\n${
+            f.suggestion ? `**Suggestion:**\n\`\`\`\n${f.suggestion}\n\`\`\`` : ''
+          }`,
+        };
+      });
+
+    if (comments.length > 0) {
+      await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number: prNumber,
+        event: 'COMMENT',
+        comments: comments,
+        body: `🤖 **Src-Audit AI Analysis Completed.** Found ${findings.length} issues. Please review the inline comments.`,
+      });
+      log.info('Successfully posted PR review comments', { repo, prNumber, count: comments.length });
+    }
+  } catch (err: any) {
+    log.error('Failed to post PR review comments, falling back to a global PR comment', {
+      error: err.message,
+    });
+    try {
+      const body = `🤖 **Src-Audit AI Analysis Completed.** Found ${findings.length} issues:\n\n` +
+        findings.map((f) => `- **[${f.severity}] ${f.category}** in \`${f.filePath}\`: ${f.description}`).join('\n');
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body,
+      });
+    } catch (e: any) {
+      log.error('Failed to post fallback PR comment', { error: e.message });
+    }
+  }
+}
+
 log.info('Agent worker starting...');
 
 const worker = new Worker(
@@ -109,8 +195,20 @@ const worker = new Worker(
         log.debug('No GEMINI.md found', { repo });
       }
 
+      // Combine GEMINI.md context with project customPromptRules
+      const mergedContext = [context, project.customPromptRules].filter(Boolean).join('\n\n');
+      const model = project.llmModel || 'gpt-4o';
+
       // 5. AI Analysis
-      await agent.analyzeCode(auditId, repo, diff, context);
+      const findings = await agent.analyzeCode(auditId, repo, diff, mergedContext, model);
+
+      // Create Check Run / Commit Status on GitHub
+      await createGitHubCheck(jobOctokit, owner, repoName, commitHash, findings.length);
+
+      // Post Review Comments to PR if enabled and it's a PR event
+      if (project.enablePRComments && prNumber) {
+        await postPRComments(jobOctokit, owner, repoName, prNumber, findings);
+      }
 
       // 6. Update status to GENERATING_TESTS
       await db.audit.update({
@@ -121,7 +219,7 @@ const worker = new Worker(
 
       // 7. AI Test Generation
       const { testCode: initialTestCode, testResultId } = await agent.generateTestCode(
-        auditId, repo, diff, context,
+        auditId, repo, diff, mergedContext, model,
       );
 
       // 8. Update status to EXECUTING_SANDBOX
@@ -204,7 +302,7 @@ const worker = new Worker(
             .substring(0, 10_000); // Limit error context sent to AI
 
           const { healedCode, errorAnalysis } = await agent.healTestCode(
-            repo, diff, currentTestCode, errorOutput, context,
+            repo, diff, currentTestCode, errorOutput, mergedContext, model,
           );
 
           // Store errorAnalysis in the healing iteration

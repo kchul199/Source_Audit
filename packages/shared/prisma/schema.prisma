@@ -25,6 +25,11 @@ model Project {
   branchFilter   String   @default("*") // Comma-separated list of branches, or "*" for all
   active         Boolean  @default(true)
 
+  // AI & Automation Settings
+  customPromptRules String?
+  llmModel          String   @default("gpt-4o")
+  enablePRComments  Boolean  @default(false)
+
   audits         Audit[]
   createdAt      DateTime @default(now())
 }
@@ -57,7 +62,7 @@ model AnalysisResult {
   id          String   @id @default(cuid())
   auditId     String
   audit       Audit    @relation(fields: [auditId], references: [id])
-  category    String   // "SECURITY", "PERFORMANCE", "MAINTAINABILITY"
+  category    String   // "SECURITY", "PERFORMANCE", "MAINTAINABILITY", etc.
   severity    String   // "CRITICAL", "HIGH", "MEDIUM", "LOW"
   filePath    String
   lineRange   String?
@@ -103,3 +108,18 @@ enum TestStatus {
   HEALED
   TIMEOUT
 }
+
+model WebhookEvent {
+  id           String   @id @default(cuid())
+  projectId    String?
+  event        String   // e.g., "pull_request", "push", "ping"
+  repo         String
+  branch       String?
+  sender       String
+  action       String
+  outcome      String   // "ACCEPTED", "REJECTED", "FILTERED"
+  rejectReason String?
+  auditId      String?
+  receivedAt   DateTime @default(now())
+}
+

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { fetchStats } from '../api/client';
-import type { DashboardStats, ProjectStats } from '../types';
+import React, { useEffect, useState, useCallback } from 'react';
+import { fetchStats, fetchStatsTrend } from '../api/client';
+import type { DashboardStats, ProjectStats, TrendData } from '../types';
 import {
   BarChart3, ShieldAlert, Zap, Settings, AlertTriangle,
   RotateCw, Beaker, CheckCircle2, ChevronDown, FolderOpen,
   ArrowUpRight, Info, Activity, Sliders, Puzzle, Bug,
+  TrendingUp, ActivitySquare
 } from 'lucide-react';
 
 /* ── Progress Bar Component ── */
@@ -42,13 +43,18 @@ export const StatsPage: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
+  // Trend Chart States
+  const [trendData, setTrendData] = useState<TrendData[]>([]);
+  const [trendRange, setTrendRange] = useState<string>('30d');
+  const [trendLoading, setTrendLoading] = useState<boolean>(false);
+
   const loadData = () => {
     setLoading(true);
     setError(null);
     fetchStats()
       .then((data) => {
         setStats(data);
-        if (data.projects.length > 0) {
+        if (data.projects.length > 0 && !selectedProjectId) {
           setSelectedProjectId(data.projects[0].id);
         }
       })
@@ -56,9 +62,21 @@ export const StatsPage: React.FC = () => {
       .finally(() => setLoading(false));
   };
 
+  const loadTrend = useCallback(() => {
+    setTrendLoading(true);
+    fetchStatsTrend(selectedProjectId || undefined, trendRange)
+      .then(setTrendData)
+      .catch((err) => console.error('Failed to load trend stats', err))
+      .finally(() => setTrendLoading(false));
+  }, [selectedProjectId, trendRange]);
+
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    loadTrend();
+  }, [loadTrend]);
 
   if (loading) {
     return (
@@ -299,6 +317,200 @@ export const StatsPage: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Quality Trend Analysis Section (NEW) ── */}
+      <div className="space-y-6">
+        <div className="rounded-2xl p-6 glass flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <h3 className="font-bold text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <TrendingUp size={16} className="text-indigo-500" />
+              Quality Trend Analysis (Security, Performance, Maintainability)
+            </h3>
+            {/* Range Selectors */}
+            <div className="flex gap-1.5 p-1 rounded-xl border text-xs font-semibold" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
+              {['7d', '30d', '90d'].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setTrendRange(r)}
+                  className={`px-3 py-1.5 rounded-lg transition-all capitalize ${
+                    trendRange === r
+                      ? 'bg-indigo-600 text-white shadow-md'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {trendLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <RotateCw size={24} className="text-indigo-500 animate-spin mr-2" />
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Loading trend data...</span>
+            </div>
+          ) : trendData.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 text-xs">No trend data found.</div>
+          ) : (
+            <div className="w-full">
+              {/* SVG Area/Line Chart */}
+              <div className="h-64 relative w-full border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+                {(() => {
+                  const width = 800;
+                  const height = 240;
+                  
+                  // Find max value in data to scale properly
+                  const maxVal = Math.max(
+                    ...trendData.map(d => Math.max(d.Security, d.Performance, d.Maintainability, 1))
+                  ) + 2;
+
+                  const getPath = (key: 'Security' | 'Performance' | 'Maintainability') => {
+                    if (trendData.length < 2) return `0,${height} L ${width},${height}`;
+                    return trendData.map((d, i) => {
+                      const x = (i / (trendData.length - 1)) * width;
+                      const y = height - (d[key] / maxVal) * height;
+                      return `${x.toFixed(1)},${y.toFixed(1)}`;
+                    }).join(' L ');
+                  };
+
+                  const getAreaPath = (key: 'Security' | 'Performance' | 'Maintainability') => {
+                    const linePath = getPath(key);
+                    return `${linePath} L ${width},${height} L 0,${height} Z`;
+                  };
+
+                  return (
+                    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+                      {/* Grid Lines */}
+                      {[0, 0.25, 0.5, 0.75, 1].map((r, i) => (
+                        <line
+                          key={i}
+                          x1="0"
+                          y1={height * r}
+                          x2={width}
+                          y2={height * r}
+                          stroke="var(--border-subtle)"
+                          strokeWidth="1"
+                          strokeDasharray="4 4"
+                        />
+                      ))}
+
+                      {/* Security Area & Line (Rose) */}
+                      <path d={`M ${getAreaPath('Security')}`} fill="rgba(244,63,94,0.04)" />
+                      <path d={`M ${getPath('Security')}`} fill="none" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+                      {/* Performance Area & Line (Blue) */}
+                      <path d={`M ${getAreaPath('Performance')}`} fill="rgba(59,130,246,0.04)" />
+                      <path d={`M ${getPath('Performance')}`} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+                      {/* Maintainability Area & Line (Amber) */}
+                      <path d={`M ${getAreaPath('Maintainability')}`} fill="rgba(245,158,11,0.04)" />
+                      <path d={`M ${getPath('Maintainability')}`} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+                      {/* Interactive Dots for Data Points (Last point) */}
+                      {trendData.length > 0 && (() => {
+                        const lastIdx = trendData.length - 1;
+                        const secY = height - (trendData[lastIdx].Security / maxVal) * height;
+                        const perfY = height - (trendData[lastIdx].Performance / maxVal) * height;
+                        const maintY = height - (trendData[lastIdx].Maintainability / maxVal) * height;
+                        return (
+                          <>
+                            <circle cx={width} cy={secY} r="4" fill="#f43f5e" stroke="#fff" strokeWidth="1.5" />
+                            <circle cx={width} cy={perfY} r="4" fill="#3b82f6" stroke="#fff" strokeWidth="1.5" />
+                            <circle cx={width} cy={maintY} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
+                          </>
+                        );
+                      })()}
+                    </svg>
+                  );
+                })()}
+              </div>
+
+              {/* Chart Legend */}
+              <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-rose-500" />
+                  <span>Security Flaws</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-blue-500" />
+                  <span>Performance Issues</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-amber-500" />
+                  <span>Maintainability Debts</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 2-Column Mini Trends (Test Success & Healing Iterations) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Test Success Rate Trend */}
+          <div className="rounded-2xl p-6 glass flex flex-col justify-between">
+            <h3 className="font-bold text-sm mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <ActivitySquare size={16} className="text-emerald-500" />
+              Test Success Rate Trend
+            </h3>
+            {trendLoading ? (
+              <div className="h-32 flex items-center justify-center"><RotateCw size={20} className="animate-spin text-emerald-500" /></div>
+            ) : trendData.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs">No data.</div>
+            ) : (
+              <div className="h-32 w-full relative">
+                {(() => {
+                  const width = 400;
+                  const height = 120;
+                  if (trendData.length < 2) return <div className="text-center text-xs py-10">Waiting for more data points</div>;
+                  const points = trendData.map((d, i) => {
+                    const x = (i / (trendData.length - 1)) * width;
+                    const y = height - (d.testSuccessRate / 100) * height;
+                    return `${x.toFixed(1)},${y.toFixed(1)}`;
+                  }).join(' L ');
+                  return (
+                    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+                      <path d={`M ${points}`} fill="none" stroke="#10b981" strokeWidth="2.5" />
+                      {trendData.length > 0 && (
+                        <circle cx={width} cy={height - (trendData[trendData.length - 1].testSuccessRate / 100) * height} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
+                      )}
+                    </svg>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+          {/* Average Healing Iterations */}
+          <div className="rounded-2xl p-6 glass flex flex-col justify-between">
+            <h3 className="font-bold text-sm mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <Activity size={16} className="text-indigo-500" />
+              Average Healing Iterations
+            </h3>
+            {trendLoading ? (
+              <div className="h-32 flex items-center justify-center"><RotateCw size={20} className="animate-spin text-indigo-500" /></div>
+            ) : trendData.length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs">No data.</div>
+            ) : (
+              <div className="h-32 w-full flex items-end justify-between gap-1 pt-2">
+                {trendData.map((d, idx) => {
+                  const pct = Math.min(100, (d.avgHealingIterations / 3) * 100);
+                  return (
+                    <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
+                      <div
+                        className="w-full rounded-t-sm transition-all duration-500 bg-indigo-500 hover:bg-indigo-600"
+                        style={{ height: `${pct}%`, minHeight: '4px' }}
+                      />
+                      <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                        {d.avgHealingIterations.toFixed(2)} loops
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

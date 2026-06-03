@@ -32,6 +32,9 @@ export const SettingsPage: React.FC = () => {
   const [formAdminUsers, setFormAdminUsers] = useState('');
   const [formBranchFilter, setFormBranchFilter] = useState('*');
   const [formActive, setFormActive] = useState(true);
+  const [formCustomPromptRules, setFormCustomPromptRules] = useState('');
+  const [formLlmModel, setFormLlmModel] = useState('gpt-4o');
+  const [formEnablePRComments, setFormEnablePRComments] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -69,6 +72,9 @@ export const SettingsPage: React.FC = () => {
     setFormAdminUsers('');
     setFormBranchFilter('*');
     setFormActive(true);
+    setFormCustomPromptRules('');
+    setFormLlmModel('gpt-4o');
+    setFormEnablePRComments(false);
     setIsModalOpen(true);
   };
 
@@ -83,6 +89,9 @@ export const SettingsPage: React.FC = () => {
     setFormAdminUsers(proj.adminUsers || '');
     setFormBranchFilter(proj.branchFilter || '*');
     setFormActive(proj.active ?? true);
+    setFormCustomPromptRules(proj.customPromptRules || '');
+    setFormLlmModel(proj.llmModel || 'gpt-4o');
+    setFormEnablePRComments(proj.enablePRComments ?? false);
     setIsModalOpen(true);
   };
 
@@ -121,6 +130,9 @@ export const SettingsPage: React.FC = () => {
       adminUsers: formAdminUsers.trim(),
       branchFilter: formBranchFilter.trim() || '*',
       active: formActive,
+      customPromptRules: formCustomPromptRules.trim() || null,
+      llmModel: formLlmModel,
+      enablePRComments: formEnablePRComments,
     };
 
     try {
@@ -332,6 +344,16 @@ export const SettingsPage: React.FC = () => {
                         <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>{proj.branchFilter || '*'}</span>
                       </div>
                       <div className="flex justify-between">
+                        <span style={{ color: 'var(--text-tertiary)' }}>LLM Model:</span>
+                        <span className="font-mono font-bold text-indigo-600">{proj.llmModel || 'gpt-4o'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: 'var(--text-tertiary)' }}>PR Comments:</span>
+                        <span className="font-mono font-bold" style={{ color: proj.enablePRComments ? 'var(--success)' : 'var(--text-muted)' }}>
+                          {proj.enablePRComments ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
                         <span style={{ color: 'var(--text-tertiary)' }}>GitHub Key:</span>
                         <span className="font-mono font-bold text-slate-500 flex items-center gap-1">
                           {proj.githubToken ? (
@@ -488,6 +510,55 @@ export const SettingsPage: React.FC = () => {
                     style={{ borderColor: 'var(--border-medium)' }}
                   />
                   <p className="text-[10px] text-slate-400">Used to securely verify incoming GitHub webhooks.</p>
+                </div>
+
+                {/* AI Configuration Section */}
+                <div className="p-4 rounded-xl border space-y-4 bg-indigo-50/20" style={{ borderColor: 'rgba(99,102,241,0.2)' }}>
+                  <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shield size={14} /> 3. AI Configuration
+                  </h4>
+                  
+                  {/* LLM Model */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase">LLM Model</label>
+                    <select
+                      value={formLlmModel}
+                      onChange={(e) => setFormLlmModel(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-xl text-sm focus:outline-indigo-500 text-slate-800 bg-white"
+                      style={{ borderColor: 'var(--border-medium)' }}
+                    >
+                      <option value="gpt-4o">gpt-4o</option>
+                      <option value="gpt-4o-mini">gpt-4o-mini</option>
+                      <option value="o1-pro">o1-pro</option>
+                    </select>
+                  </div>
+
+                  {/* Custom Prompt Rules */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase">Custom Prompt Rules</label>
+                    <textarea
+                      placeholder="Enter team-specific coding conventions and analysis rules..."
+                      value={formCustomPromptRules}
+                      onChange={(e) => setFormCustomPromptRules(e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-2 border rounded-xl text-xs focus:outline-indigo-500 text-slate-800"
+                      style={{ borderColor: 'var(--border-medium)' }}
+                    />
+                  </div>
+
+                  {/* Enable PR Comments */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-slate-700">Enable PR Review Comments</span>
+                      <span className="text-[9px] text-slate-400">Automatically post review comments on GitHub Pull Requests.</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formEnablePRComments}
+                      onChange={(e) => setFormEnablePRComments(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </div>
                 </div>
 
                 {/* Branch Filter & Trigger Users */}

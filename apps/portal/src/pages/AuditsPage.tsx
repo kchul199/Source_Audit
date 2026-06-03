@@ -28,9 +28,13 @@ export const AuditsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Compare Checkboxes State
+  const [selectedAuditIds, setSelectedAuditIds] = useState<string[]>([]);
+
   const loadData = useCallback(() => {
     setLoading(true);
     setError(null);
+    setSelectedAuditIds([]); // Reset selection on page/project change
     fetchAudits(projectId, currentPage, 15)
       .then(setResult)
       .catch((err: any) => setError(err.message || 'Failed to fetch audits'))
@@ -43,6 +47,12 @@ export const AuditsPage: React.FC = () => {
     const params = new URLSearchParams(searchParams);
     params.set('page', String(page));
     setSearchParams(params);
+  };
+
+  const handleSelectAudit = (id: string) => {
+    setSelectedAuditIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
   };
 
   const audits = result?.data || [];
@@ -79,7 +89,7 @@ export const AuditsPage: React.FC = () => {
           <span>/</span>
           <span style={{ color: 'var(--text-secondary)' }}>{projectName}</span>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>
               Audit History
@@ -90,15 +100,27 @@ export const AuditsPage: React.FC = () => {
               </p>
             )}
           </div>
+          {selectedAuditIds.length === 2 && (
+            <Link
+              to={`/audits/compare?left=${selectedAuditIds[0]}&right=${selectedAuditIds[1]}`}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all flex items-center gap-1.5"
+            >
+              Compare Selected Audits
+            </Link>
+          )}
         </div>
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl overflow-hidden"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
+      <div className="rounded-2xl overflow-hidden border"
+        style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }}>
         <table className="w-full text-left">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+              <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-[0.15em] w-16 text-center"
+                style={{ color: 'var(--text-muted)', background: 'var(--bg-surface)' }}>
+                Select
+              </th>
               {['Event', 'Reference', 'Status', 'Detected', ''].map((h) => (
                 <th key={h} className={`px-5 py-4 text-[10px] font-bold uppercase tracking-[0.15em] ${h === '' ? 'text-right' : ''}`}
                   style={{ color: 'var(--text-muted)', background: 'var(--bg-surface)' }}>
@@ -112,7 +134,7 @@ export const AuditsPage: React.FC = () => {
               [0, 1, 2, 3, 4].map((i) => <SkeletonRow key={i} />)
             ) : audits.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-24 text-center">
+                <td colSpan={6} className="py-24 text-center">
                   <Search size={36} className="mx-auto mb-4 opacity-15" style={{ color: 'var(--text-muted)' }} />
                   <p className="font-medium text-sm" style={{ color: 'var(--text-tertiary)' }}>
                     No audit records found.
@@ -131,6 +153,15 @@ export const AuditsPage: React.FC = () => {
                   onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(99,102,241,0.03)'}
                   onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 >
+                  <td className="px-5 py-4 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedAuditIds.includes(audit.id)}
+                      onChange={() => handleSelectAudit(audit.id)}
+                      disabled={!selectedAuditIds.includes(audit.id) && selectedAuditIds.length >= 2}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 transition-all"
+                    />
+                  </td>
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"

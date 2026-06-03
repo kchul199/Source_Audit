@@ -1,15 +1,6 @@
 {
   "repositories": [
     {
-      "name": "test-repo",
-      "repoUrl": "https://github.com/owner/test-repo",
-      "allowPRs": true,
-      "allowPush": true,
-      "adminUsers": [],
-      "branchFilter": "*",
-      "active": true
-    },
-    {
       "name": "validation-test-repo",
       "repoUrl": "https://github.com/test-org/validation-test-repo",
       "githubToken": "ghp_verificationtokenvalue98765",
@@ -34,6 +25,17 @@
         "approver-user"
       ],
       "branchFilter": "main,release/*",
+      "active": true
+    },
+    {
+      "name": "test-repo",
+      "repoUrl": "https://github.com/owner/test-repo",
+      "githubToken": "ghp_test_token_value_123",
+      "webhookSecret": "webhook_test_secret_123",
+      "allowPRs": true,
+      "allowPush": true,
+      "adminUsers": [],
+      "branchFilter": "*",
       "active": true
     }
   ]
