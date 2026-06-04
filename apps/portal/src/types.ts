@@ -44,6 +44,7 @@ export interface AnalysisResult {
   lineRange: string | null;
   description: string;
   suggestion: string | null;
+  sourceSnippet: string | null;
   createdAt: string;
 }
 

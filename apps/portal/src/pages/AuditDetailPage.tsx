@@ -424,36 +424,91 @@ export const AuditDetailPage: React.FC = () => {
                     className="rounded-2xl overflow-hidden hover-glow transition-all shadow-md"
                     style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}
                   >
-                    <div className="p-6">
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center gap-3">
-                          <span className={`px-3 py-1 rounded-lg border text-[11px] font-black tracking-widest uppercase shadow-sm ${severityColor(finding.severity)}`}>
-                            {finding.severity}
-                          </span>
+                    {/* Severity color bar on left */}
+                    <div className="flex">
+                      <div
+                        className="w-1.5 shrink-0"
+                        style={{
+                          background: finding.severity === 'CRITICAL' ? '#f43f5e'
+                            : finding.severity === 'HIGH' ? '#f97316'
+                            : finding.severity === 'MEDIUM' ? '#eab308'
+                            : '#3b82f6'
+                        }}
+                      />
+                      <div className="p-6 flex-1 min-w-0">
+                        <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className={`px-3 py-1 rounded-lg border text-[11px] font-black tracking-widest uppercase shadow-sm ${severityColor(finding.severity)}`}>
+                              {finding.severity}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono px-3 py-1 rounded-full border"
+                              style={{
+                                background: 'var(--bg-secondary)',
+                                borderColor: 'var(--border-subtle)',
+                                color: 'var(--text-secondary)',
+                              }}
+                            >
+                              📂 {finding.filePath}
+                            </span>
+                            {finding.lineRange && (
+                              <span className="text-xs font-mono px-2 py-1 rounded-full"
+                                style={{
+                                  background: 'rgba(99,102,241,0.1)',
+                                  color: '#6366f1',
+                                }}
+                              >
+                                L{finding.lineRange}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-xs font-mono px-3 py-1 rounded-full border"
-                          style={{
-                            background: 'var(--bg-secondary)',
-                            borderColor: 'var(--border-subtle)',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          {finding.filePath}
-                        </span>
+                        <h4 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)' }}>{finding.description}</h4>
+
+                        {/* Source Code Snippet */}
+                        {finding.sourceSnippet && (
+                          <details className="mt-4 group">
+                            <summary
+                              className="cursor-pointer flex items-center gap-2 text-xs font-bold uppercase tracking-widest py-2 select-none transition-colors"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              <Code2 size={14} className="text-indigo-500" />
+                              <span>문제 소스코드 보기</span>
+                              <span className="ml-1 text-[10px] font-normal opacity-60">▶ 클릭하여 펼치기</span>
+                            </summary>
+                            <div className="mt-2 rounded-xl overflow-hidden border shadow-inner" style={{ borderColor: 'var(--border-subtle)' }}>
+                              <div className="px-4 py-2 flex items-center justify-between" style={{ background: '#161b22', borderBottom: '1px solid #30363d' }}>
+                                <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                                  <Code2 size={12} />
+                                  {finding.filePath}
+                                  {finding.lineRange && <span className="text-indigo-400">:{finding.lineRange}</span>}
+                                </div>
+                                <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-rose-500/20 text-rose-400">
+                                  Issue
+                                </span>
+                              </div>
+                              <pre className="p-5 overflow-x-auto text-sm font-mono leading-relaxed bg-[#0d1117] max-h-[400px] overflow-y-auto">
+                                <code className="text-indigo-200">{finding.sourceSnippet}</code>
+                              </pre>
+                            </div>
+                          </details>
+                        )}
+
+                        {/* AI Suggestion */}
+                        {finding.suggestion && (
+                          <div className="mt-5 bg-indigo-500/5 rounded-2xl p-5 border border-indigo-500/10 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                              <Zap size={64} className="text-indigo-400" />
+                            </div>
+                            <div className="text-indigo-600 text-xs font-black uppercase mb-2 flex items-center gap-2">
+                              <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+                              AI 제안 수정사항
+                            </div>
+                            <p className="text-sm leading-relaxed relative z-10 font-medium" style={{ color: 'var(--text-secondary)' }}>{finding.suggestion}</p>
+                          </div>
+                        )}
                       </div>
-                      <h4 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)' }}>{finding.description}</h4>
-                      {finding.suggestion && (
-                        <div className="mt-6 bg-indigo-500/5 rounded-2xl p-6 border border-indigo-500/10 relative overflow-hidden group">
-                          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                            <Zap size={64} className="text-indigo-400" />
-                          </div>
-                          <div className="text-indigo-600 text-xs font-black uppercase mb-3 flex items-center gap-2">
-                            <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
-                            Proposed Fix
-                          </div>
-                          <p className="text-sm leading-relaxed relative z-10 font-medium" style={{ color: 'var(--text-secondary)' }}>{finding.suggestion}</p>
-                        </div>
-                      )}
                     </div>
                   </div>
                 ))}

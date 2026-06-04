@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { fetchAuditCompare } from '../api/client';
-import { ArrowLeftRight, Check, AlertOctagon, HelpCircle } from 'lucide-react';
+import { ArrowLeftRight, Check, AlertOctagon, HelpCircle, Code2 } from 'lucide-react';
 import type { AuditCompareResult, AnalysisResult } from '../types';
 
 export const AuditComparePage: React.FC = () => {
@@ -132,15 +132,27 @@ export const AuditComparePage: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs font-mono mb-1 truncate" style={{ color: 'var(--text-primary)' }}>
-                {finding.filePath}
+                📂 {finding.filePath}{finding.lineRange && <span className="text-indigo-500 ml-1">L{finding.lineRange}</span>}
               </div>
               <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {finding.description}
               </p>
+              {finding.sourceSnippet && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest py-1 select-none" style={{ color: 'var(--text-muted)' }}>
+                    <Code2 size={11} className="text-indigo-500" /> 소스코드 보기
+                  </summary>
+                  <div className="mt-1.5 rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-subtle)' }}>
+                    <pre className="p-3 overflow-x-auto text-[11px] font-mono leading-relaxed bg-[#0d1117] max-h-48 overflow-y-auto">
+                      <code className="text-indigo-200">{finding.sourceSnippet}</code>
+                    </pre>
+                  </div>
+                </details>
+              )}
               {finding.suggestion && (
                 <div className="mt-2.5 p-2.5 rounded-lg text-xs font-mono border"
                   style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}>
-                  <div className="font-semibold mb-1 text-[10px] uppercase text-indigo-600">Suggested Fix:</div>
+                  <div className="font-semibold mb-1 text-[10px] uppercase text-indigo-600">AI 제안:</div>
                   {finding.suggestion}
                 </div>
               )}

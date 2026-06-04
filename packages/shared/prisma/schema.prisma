@@ -68,6 +68,7 @@ model AnalysisResult {
   lineRange   String?
   description String
   suggestion  String?  // Proposed code fix
+  sourceSnippet String?  // 문제가 발견된 소스코드 스니펫
   createdAt   DateTime @default(now())
 }
 
