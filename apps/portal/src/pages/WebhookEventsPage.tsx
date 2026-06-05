@@ -94,8 +94,45 @@ export const WebhookEventsPage: React.FC = () => {
         </button>
       </div>
 
+      {/* Outcome Descriptions / Legend */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        <div className="p-4 rounded-xl border flex gap-3 bg-slate-50/50 hover-glow transition-all" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }}>
+          <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg shrink-0 h-fit border border-emerald-100">
+            <CheckCircle size={16} />
+          </div>
+          <div>
+            <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>ACCEPTED (수락됨)</div>
+            <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              웹훅의 서명이 정상 검증되고 모니터링 대상 브랜치/레포지토리 규칙을 만족하여 AI 감사 진단 및 자동화 테스트 파이프라인이 정상 작동했습니다.
+            </p>
+          </div>
+        </div>
+        <div className="p-4 rounded-xl border flex gap-3 bg-slate-50/50 hover-glow transition-all" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }}>
+          <div className="p-2 bg-amber-50 text-amber-600 rounded-lg shrink-0 h-fit border border-amber-100">
+            <AlertTriangle size={16} />
+          </div>
+          <div>
+            <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>FILTERED (필터링됨)</div>
+            <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              웹훅 서명은 유효하나 감시 대상 제외 브랜치(예: 피처/임시 브랜치) 등으로 분석 대상 규칙을 만족하지 않아 작업을 유보/생략했습니다.
+            </p>
+          </div>
+        </div>
+        <div className="p-4 rounded-xl border flex gap-3 bg-slate-50/50 hover-glow transition-all" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }}>
+          <div className="p-2 bg-rose-50 text-rose-600 rounded-lg shrink-0 h-fit border border-rose-100">
+            <XCircle size={16} />
+          </div>
+          <div>
+            <div className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>REJECTED (거절됨)</div>
+            <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              서명 검증 실패, 권한이 없는 발송 사용자, 혹은 비활성화된 프로젝트에 대한 요청으로 보안/구성 규칙에 따라 거부 처리되었습니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content */}
-      <div className="rounded-2xl overflow-hidden border"
+      <div className="rounded-2xl overflow-visible border"
         style={{ background: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }}>
         <table className="w-full text-left">
           <thead>
@@ -174,16 +211,28 @@ export const WebhookEventsPage: React.FC = () => {
                       {event.sender}
                     </span>
                   </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-col gap-1">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getOutcomeBadgeClass(event.outcome)}`}>
+                  <td className="px-5 py-4 overflow-visible">
+                    <div className="group relative inline-block">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border cursor-help ${getOutcomeBadgeClass(event.outcome)}`}>
                         {event.outcome}
                       </span>
-                      {event.rejectReason && (
-                        <span className="text-[10px] italic" style={{ color: 'var(--text-muted)' }}>
-                          {event.rejectReason}
-                        </span>
-                      )}
+                      
+                      {/* Tooltip speech bubble */}
+                      <div className="pointer-events-none opacity-0 invisible group-hover:opacity-100 group-hover:visible absolute z-50 left-full top-1/2 transform -translate-y-1/2 ml-2 p-3 text-[11px] text-white bg-slate-900 rounded-xl shadow-xl w-64 transition-all duration-200 leading-relaxed">
+                        <div className="font-bold border-b border-slate-700 pb-1 mb-1.5 flex items-center gap-1.5 text-xs text-indigo-300">
+                          {event.outcome === 'ACCEPTED' ? <CheckCircle size={12} className="text-emerald-400" />
+                            : event.outcome === 'REJECTED' ? <XCircle size={12} className="text-rose-400" />
+                            : <AlertTriangle size={12} className="text-amber-400" />}
+                          <span>{event.outcome} 상세 사유</span>
+                        </div>
+                        <p className="text-slate-300 text-[10px]">
+                          {event.outcome === 'ACCEPTED' && (event.auditId ? `서명이 성공적으로 검증되었으며 감사 작업이 정상 등록되었습니다. (Audit ID: ${event.auditId.substring(0, 8)}...)` : '이벤트가 수락되었으며 감사 프로세스를 대기 중입니다.')}
+                          {event.outcome === 'FILTERED' && `필터 제외: ${event.rejectReason || '브랜치 모니터링 제외 대상'}`}
+                          {event.outcome === 'REJECTED' && `거절 사유: ${event.rejectReason || '유효하지 않은 보안 서명'}`}
+                        </p>
+                        {/* Triangle arrow pointing left */}
+                        <div className="absolute right-full top-1/2 transform -translate-y-1/2 -mr-1 w-2 h-2 rotate-45 bg-slate-900"></div>
+                      </div>
                     </div>
                   </td>
                   <td className="px-5 py-4">
