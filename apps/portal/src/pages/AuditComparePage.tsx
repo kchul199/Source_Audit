@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { fetchAuditCompare } from '../api/client';
+import { fetchAuditCompare, getErrorMessage } from '../api/client';
 import { ArrowLeftRight, Check, AlertOctagon, HelpCircle, Code2 } from 'lucide-react';
 import type { AuditCompareResult, AnalysisResult } from '../types';
 
@@ -23,7 +23,7 @@ export const AuditComparePage: React.FC = () => {
     setError(null);
     fetchAuditCompare(leftId, rightId)
       .then(setResult)
-      .catch((err: any) => setError(err.message || 'Failed to compare audits'))
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to compare audits')))
       .finally(() => setLoading(false));
   }, [leftId, rightId]);
 

@@ -8,6 +8,14 @@ import crypto from 'crypto';
 import { db, AuditStatus, createLogger, syncConfig, exportConfigToFile, readConfigFile, maskToken } from '@src-audit/shared';
 import { enqueueAuditTask } from './queue';
 
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
+
 // Load .env from root (single entry point for this service)
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
@@ -22,10 +30,143 @@ const io = new Server(httpServer, {
 });
 
 const port = process.env.PORT || 3001;
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'dummy_secret';
+const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
+
+const normalizeRepoUrl = (repoUrl?: string | null) => {
+  if (!repoUrl) return '';
+  return repoUrl.trim().replace(/\.git$/, '').replace(/\/$/, '');
+};
+
+const repoUrlCandidates = (repoUrl?: string | null) => {
+  const normalized = normalizeRepoUrl(repoUrl);
+  if (!normalized) return [];
+  return [normalized, `${normalized}.git`];
+};
+
+type ProjectRecord = Awaited<ReturnType<typeof db.project.findFirst>>;
+
+type ProjectMatch = {
+  project: NonNullable<ProjectRecord>;
+  scope: 'repository' | 'owner';
+};
+
+const parseGithubRepoUrl = (repoUrl?: string | null) => {
+  const normalized = normalizeRepoUrl(repoUrl);
+  if (!normalized) return null;
+
+  try {
+    const url = new URL(normalized);
+    if (url.hostname !== 'github.com') return null;
+    const [owner, repo] = url.pathname.replace(/^\/+|\/+$/g, '').split('/');
+    if (!owner) return null;
+    return {
+      owner,
+      repo: repo && repo !== '*' ? repo : undefined,
+      isOwnerWildcard: !repo || repo === '*',
+    };
+  } catch {
+    const match = normalized.match(/^https:\/\/github\.com\/([^/]+)(?:\/([^/]+))?$/);
+    if (!match) return null;
+    const repo = match[2];
+    return {
+      owner: match[1],
+      repo: repo && repo !== '*' ? repo : undefined,
+      isOwnerWildcard: !repo || repo === '*',
+    };
+  }
+};
+
+const findExactProjectByRepoUrl = async (repoUrl?: string | null) => {
+  const candidates = repoUrlCandidates(repoUrl);
+  if (candidates.length === 0) return null;
+  return db.project.findFirst({
+    where: {
+      repoUrl: {
+        in: candidates,
+      },
+    },
+  });
+};
+
+const findOwnerProjectByRepoUrl = async (repoUrl?: string | null) => {
+  const parsed = parseGithubRepoUrl(repoUrl);
+  if (!parsed?.owner) return null;
+
+  const candidates = [
+    `https://github.com/${parsed.owner}/*`,
+    `https://github.com/${parsed.owner}/`,
+    `https://github.com/${parsed.owner}`,
+  ];
+
+  return db.project.findFirst({
+    where: {
+      repoUrl: {
+        in: candidates,
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+};
+
+const findProjectMatchByRepoUrl = async (repoUrl?: string | null): Promise<ProjectMatch | null> => {
+  const exact = await findExactProjectByRepoUrl(repoUrl);
+  if (exact) {
+    return { project: exact, scope: 'repository' };
+  }
+
+  const owner = await findOwnerProjectByRepoUrl(repoUrl);
+  if (owner) {
+    return { project: owner, scope: 'owner' };
+  }
+
+  return null;
+};
+
+const findProjectByRepoUrl = async (repoUrl?: string | null) => {
+  const match = await findProjectMatchByRepoUrl(repoUrl);
+  return match?.project ?? null;
+};
+
+const createProjectFromOwnerTemplate = async (payload: any, template: NonNullable<ProjectRecord>) => {
+  const repoUrl = normalizeRepoUrl(payload.repository.html_url);
+  return db.project.upsert({
+    where: { repoUrl },
+    update: {
+      name: payload.repository.name,
+      githubToken: template.githubToken,
+      webhookSecret: template.webhookSecret,
+      allowPRs: template.allowPRs,
+      allowPush: template.allowPush,
+      adminUsers: template.adminUsers,
+      branchFilter: template.branchFilter,
+      active: template.active,
+      customPromptRules: template.customPromptRules,
+      llmModel: template.llmModel,
+      enablePRComments: template.enablePRComments,
+    },
+    create: {
+      name: payload.repository.name,
+      repoUrl,
+      githubToken: template.githubToken,
+      webhookSecret: template.webhookSecret,
+      allowPRs: template.allowPRs,
+      allowPush: template.allowPush,
+      adminUsers: template.adminUsers,
+      branchFilter: template.branchFilter,
+      active: template.active,
+      customPromptRules: template.customPromptRules,
+      llmModel: template.llmModel,
+      enablePRComments: template.enablePRComments,
+    },
+  });
+};
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as express.Request).rawBody = Buffer.from(buf);
+  },
+}));
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
@@ -57,7 +198,7 @@ const verifySignature = async (req: express.Request, res: express.Response, next
 
   if (repoUrl) {
     try {
-      const project = await db.project.findUnique({ where: { repoUrl } });
+      const project = await findProjectByRepoUrl(repoUrl);
       if (project && project.webhookSecret) {
         secret = project.webhookSecret;
       }
@@ -66,20 +207,27 @@ const verifySignature = async (req: express.Request, res: express.Response, next
     }
   }
 
-  const hmac = crypto.createHmac('sha256', secret);
-  const digest = 'sha256=' + hmac.update(JSON.stringify(req.body)).digest('hex');
+  if (!secret) {
+    log.error('No webhook secret configured for signature verification', { repoUrl });
+    return res.status(500).send('Webhook secret is not configured');
+  }
 
-  if (signature !== digest) {
-    log.warn('Invalid webhook signature detected');
-    // If project has a custom webhook secret, strictly reject mismatches
-    if (repoUrl) {
-      try {
-        const project = await db.project.findUnique({ where: { repoUrl } });
-        if (project && project.webhookSecret) {
-          return res.status(401).send('Invalid signature');
-        }
-      } catch (err) {}
-    }
+  if (!req.rawBody) {
+    log.error('Raw webhook body missing during signature verification', { repoUrl });
+    return res.status(400).send('Invalid webhook payload');
+  }
+
+  const hmac = crypto.createHmac('sha256', secret);
+  const digest = 'sha256=' + hmac.update(req.rawBody).digest('hex');
+  const signatureBuffer = Buffer.from(signature);
+  const digestBuffer = Buffer.from(digest);
+
+  const isValid = signatureBuffer.length === digestBuffer.length
+    && crypto.timingSafeEqual(signatureBuffer, digestBuffer);
+
+  if (!isValid) {
+    log.warn('Invalid webhook signature detected', { repoUrl });
+    return res.status(401).send('Invalid signature');
   }
 
   next();
@@ -178,6 +326,9 @@ app.post('/api/projects', async (req, res) => {
     await exportConfigToFile();
     res.json(project);
   } catch (error: any) {
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ error: 'Repository URL is already registered' });
+    }
     log.error('Error creating project', { error: error.message });
     res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
@@ -236,8 +387,33 @@ app.delete('/api/projects/:id', async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    await db.audit.deleteMany({ where: { projectId: id } });
-    await db.project.delete({ where: { id } });
+    await db.$transaction([
+      db.healingIteration.deleteMany({
+        where: {
+          testResult: {
+            audit: {
+              projectId: id,
+            },
+          },
+        },
+      }),
+      db.testResult.deleteMany({
+        where: {
+          audit: {
+            projectId: id,
+          },
+        },
+      }),
+      db.analysisResult.deleteMany({
+        where: {
+          audit: {
+            projectId: id,
+          },
+        },
+      }),
+      db.audit.deleteMany({ where: { projectId: id } }),
+      db.project.delete({ where: { id } }),
+    ]);
 
     // Auto export to config file on change so the file stays in sync
     await exportConfigToFile();
@@ -711,9 +887,8 @@ app.post('/webhooks/github', verifySignature, async (req, res) => {
 
     if (event === 'pull_request' && (payload.action === 'opened' || payload.action === 'synchronize')) {
       const branch = payload.pull_request?.base?.ref || 'unknown';
-      const project = await db.project.findUnique({
-        where: { repoUrl: payload.repository.html_url }
-      });
+      const projectMatch = await findProjectMatchByRepoUrl(payload.repository.html_url);
+      const project = projectMatch?.project ?? null;
 
       if (project) {
         if (!project.active) {
@@ -763,14 +938,16 @@ app.post('/webhooks/github', verifySignature, async (req, res) => {
         }
       }
 
-      const savedProject = await db.project.upsert({
-        where: { repoUrl: payload.repository.html_url },
-        update: { name: payload.repository.name },
-        create: {
-          name: payload.repository.name,
-          repoUrl: payload.repository.html_url,
-        },
-      });
+      const savedProject = projectMatch?.scope === 'owner'
+        ? await createProjectFromOwnerTemplate(payload, projectMatch.project)
+        : project || await db.project.upsert({
+          where: { repoUrl: normalizeRepoUrl(payload.repository.html_url) },
+          update: { name: payload.repository.name },
+          create: {
+            name: payload.repository.name,
+            repoUrl: normalizeRepoUrl(payload.repository.html_url),
+          },
+        });
 
       const audit = await db.audit.create({
         data: {
@@ -805,9 +982,8 @@ app.post('/webhooks/github', verifySignature, async (req, res) => {
     } else if (event === 'push') {
       const ref = payload.ref || '';
       const branch = ref.replace('refs/heads/', '');
-      const project = await db.project.findUnique({
-        where: { repoUrl: payload.repository.html_url }
-      });
+      const projectMatch = await findProjectMatchByRepoUrl(payload.repository.html_url);
+      const project = projectMatch?.project ?? null;
 
       if (project) {
         if (!project.active) {
@@ -874,14 +1050,16 @@ app.post('/webhooks/github', verifySignature, async (req, res) => {
         }
       }
 
-      const savedProject = await db.project.upsert({
-        where: { repoUrl: payload.repository.html_url },
-        update: { name: payload.repository.name },
-        create: {
-          name: payload.repository.name,
-          repoUrl: payload.repository.html_url,
-        },
-      });
+      const savedProject = projectMatch?.scope === 'owner'
+        ? await createProjectFromOwnerTemplate(payload, projectMatch.project)
+        : project || await db.project.upsert({
+          where: { repoUrl: normalizeRepoUrl(payload.repository.html_url) },
+          update: { name: payload.repository.name },
+          create: {
+            name: payload.repository.name,
+            repoUrl: normalizeRepoUrl(payload.repository.html_url),
+          },
+        });
 
       const audit = await db.audit.create({
         data: {

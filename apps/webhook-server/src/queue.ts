@@ -22,10 +22,13 @@ export const agentQueue = new Queue('agent-queue', { connection: connection as a
 
 export async function enqueueAuditTask(data: AuditTaskData) {
   await agentQueue.add('analyze-code', data, {
+    jobId: data.auditId,
     attempts: 3,
     backoff: {
       type: 'exponential',
       delay: 1000,
     },
+    removeOnComplete: true,
+    removeOnFail: true,
   });
 }

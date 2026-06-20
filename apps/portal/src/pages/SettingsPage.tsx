@@ -6,13 +6,14 @@ import {
 } from 'lucide-react';
 import {
   fetchProjects, createProject, updateProject, deleteProject,
-  fetchConfigFile, syncConfigFromConfigFile, exportConfigToConfigFile
+  fetchConfigFile, syncConfigFromConfigFile, exportConfigToConfigFile,
+  getErrorMessage
 } from '../api/client';
-import type { Project } from '../types';
+import type { AppConfig, Project } from '../types';
 
 export const SettingsPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [configFile, setConfigFile] = useState<any>(null);
+  const [configFile, setConfigFile] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -45,8 +46,8 @@ export const SettingsPage: React.FC = () => {
 
       const configData = await fetchConfigFile();
       setConfigFile(configData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load configuration data');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to load configuration data'));
     } finally {
       setLoading(false);
     }
@@ -104,8 +105,8 @@ export const SettingsPage: React.FC = () => {
       await deleteProject(id);
       showSuccess('Repository configuration deleted successfully');
       await loadData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete repository');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to delete repository'));
       setLoading(false);
     }
   };
@@ -118,7 +119,7 @@ export const SettingsPage: React.FC = () => {
     }
 
     setLoading(true);
-    setIsModalOpen(false);
+    setError(null);
 
     const payload = {
       name: formName.trim(),
@@ -143,9 +144,10 @@ export const SettingsPage: React.FC = () => {
         await createProject(payload);
         showSuccess('New repository configuration created successfully');
       }
+      setIsModalOpen(false);
       await loadData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save repository configuration');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to save repository configuration'));
       setLoading(false);
     }
   };
@@ -156,8 +158,8 @@ export const SettingsPage: React.FC = () => {
       await syncConfigFromConfigFile();
       showSuccess('Database settings synchronized with local file');
       await loadData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to sync from config file');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to sync from config file'));
       setLoading(false);
     }
   };
@@ -168,8 +170,8 @@ export const SettingsPage: React.FC = () => {
       await exportConfigToConfigFile();
       showSuccess('Database settings exported to configuration file');
       await loadData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to export to config file');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to export to config file'));
       setLoading(false);
     }
   };

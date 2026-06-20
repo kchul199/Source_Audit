@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchAuditDetail, retryAudit } from '../api/client';
+import { fetchAuditDetail, getErrorMessage, retryAudit } from '../api/client';
 import { StatusBadge } from '../components/StatusBadge';
 import { useAuditContext } from '../context/AuditContext';
 import {
@@ -425,7 +425,7 @@ export const AuditDetailPage: React.FC = () => {
     setError(null);
     fetchAuditDetail(id)
       .then(setAudit)
-      .catch((err: any) => setError(err.message || 'Failed to fetch audit detail'))
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to fetch audit detail')))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -452,8 +452,8 @@ export const AuditDetailPage: React.FC = () => {
     try {
       await retryAudit(id);
       loadData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to retry audit');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Failed to retry audit'));
     } finally {
       setRetrying(false);
     }
@@ -505,7 +505,7 @@ export const AuditDetailPage: React.FC = () => {
 
       const filename = `src_audit_${audit?.project.name.toLowerCase()}_pr_${audit?.ref}.pdf`;
       pdf.save(filename);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to export PDF', err);
       setError('PDF export failed. Please try again.');
     } finally {

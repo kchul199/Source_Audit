@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchProjects } from '../api/client';
+import { fetchProjects, getErrorMessage } from '../api/client';
 import {
   FolderCode, ArrowRight, ExternalLink, AlertTriangle,
   GitPullRequest, Shield, TrendingUp, Boxes,
@@ -67,7 +67,7 @@ export const ProjectsPage: React.FC = () => {
   useEffect(() => {
     fetchProjects()
       .then(setProjects)
-      .catch((err: any) => setError(err.message || 'Failed to fetch projects'))
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to fetch projects')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -85,7 +85,7 @@ export const ProjectsPage: React.FC = () => {
           setLoading(true);
           fetchProjects()
             .then(setProjects)
-            .catch((e: any) => setError(e.message || 'Failed to fetch projects'))
+            .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to fetch projects')))
             .finally(() => setLoading(false));
         }}
         className="px-6 py-2.5 rounded-xl font-semibold text-sm text-white transition-all hover:opacity-90"

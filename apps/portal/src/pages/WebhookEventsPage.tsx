@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { fetchWebhookEvents } from '../api/client';
+import { fetchWebhookEvents, getErrorMessage } from '../api/client';
 import {
   Webhook, CheckCircle, XCircle, AlertTriangle, ArrowRight,
   ChevronLeft, ChevronRight, RefreshCw, GitPullRequest, GitCommit
@@ -20,7 +20,7 @@ export const WebhookEventsPage: React.FC = () => {
     setError(null);
     fetchWebhookEvents(currentPage, 15)
       .then(setResult)
-      .catch((err: any) => setError(err.message || 'Failed to fetch webhook events'))
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to fetch webhook events')))
       .finally(() => setLoading(false));
   }, [currentPage]);
 

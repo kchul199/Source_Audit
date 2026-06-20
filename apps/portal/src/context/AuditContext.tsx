@@ -22,7 +22,7 @@ const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export const AuditProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
-  const statusUpdatesRef = useRef(new Map<string, string>());
+  const [statusUpdates, setStatusUpdates] = useState(() => new Map<string, string>());
   const listenersRef = useRef(new Map<string, Set<(status: string) => void>>());
   const socketRef = useRef<Socket | null>(null);
 
@@ -39,7 +39,11 @@ export const AuditProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     socket.on('audit_update', (data: AuditStatusUpdate) => {
-      statusUpdatesRef.current.set(data.auditId, data.status);
+      setStatusUpdates((prev) => {
+        const next = new Map(prev);
+        next.set(data.auditId, data.status);
+        return next;
+      });
 
       // Notify all listeners for this audit
       const listeners = listenersRef.current.get(data.auditId);
@@ -81,7 +85,7 @@ export const AuditProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const value: AuditContextValue = {
-    statusUpdates: statusUpdatesRef.current,
+    statusUpdates,
     subscribe,
     isConnected,
   };

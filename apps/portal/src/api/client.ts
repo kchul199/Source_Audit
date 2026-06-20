@@ -1,16 +1,34 @@
 import type {
   Project, Audit, PaginatedResponse, DashboardStats,
-  WebhookEvent, TrendData, AuditCompareResult
+  WebhookEvent, TrendData, AuditCompareResult, AppConfig
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const errorBody = await res.text().catch(() => 'Unknown error');
-    throw new Error(`API Error ${res.status}: ${errorBody}`);
+    const errorBody = await res.text().catch(() => '');
+    let message = errorBody || res.statusText || 'Unknown error';
+    try {
+      const parsed = JSON.parse(errorBody);
+      if (parsed?.error) message = parsed.error;
+    } catch {
+      // Non-JSON error bodies are still useful as-is.
+    }
+    throw new Error(`API Error ${res.status}: ${message}`);
   }
   return res.json();
+}
+
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    if (error.message === 'Failed to fetch') {
+      return 'API server is not reachable. Start the webhook server on http://localhost:3001 and try again.';
+    }
+    return error.message;
+  }
+  if (typeof error === 'string' && error) return error;
+  return fallback;
 }
 
 export async function fetchProjects(): Promise<Project[]> {
@@ -71,9 +89,9 @@ export async function deleteProject(id: string): Promise<{ message: string }> {
   return handleResponse<{ message: string }>(res);
 }
 
-export async function fetchConfigFile(): Promise<any> {
+export async function fetchConfigFile(): Promise<AppConfig> {
   const res = await fetch(`${API_BASE_URL}/config/file`);
-  return handleResponse<any>(res);
+  return handleResponse<AppConfig>(res);
 }
 
 export async function syncConfigFromConfigFile(): Promise<{ message: string }> {
@@ -106,4 +124,3 @@ export async function fetchAuditCompare(leftId: string, rightId: string): Promis
   const res = await fetch(`${API_BASE_URL}/audits/compare?left=${leftId}&right=${rightId}`);
   return handleResponse<AuditCompareResult>(res);
 }
-

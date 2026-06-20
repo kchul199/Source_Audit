@@ -25,6 +25,22 @@ export interface Project {
   enablePRComments?: boolean;
 }
 
+export interface RepoConfig {
+  name: string;
+  repoUrl: string;
+  githubToken?: string;
+  webhookSecret?: string;
+  allowPRs?: boolean;
+  allowPush?: boolean;
+  adminUsers?: string[];
+  branchFilter?: string;
+  active?: boolean;
+}
+
+export interface AppConfig {
+  repositories: RepoConfig[];
+}
+
 export type AuditStatus =
   | 'PENDING'
   | 'ANALYZING'
@@ -180,4 +196,3 @@ export interface AuditCompareResult {
     };
   };
 }
-

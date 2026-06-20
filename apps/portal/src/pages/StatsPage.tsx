@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { fetchStats, fetchStatsTrend } from '../api/client';
+import { fetchStats, fetchStatsTrend, getErrorMessage } from '../api/client';
 import type { DashboardStats, ProjectStats, TrendData } from '../types';
 import {
   BarChart3, ShieldAlert, Zap, Settings, AlertTriangle,
@@ -48,7 +48,7 @@ export const StatsPage: React.FC = () => {
   const [trendRange, setTrendRange] = useState<string>('30d');
   const [trendLoading, setTrendLoading] = useState<boolean>(false);
 
-  const loadData = () => {
+  const loadData = useCallback(() => {
     setLoading(true);
     setError(null);
     fetchStats()
@@ -58,9 +58,9 @@ export const StatsPage: React.FC = () => {
           setSelectedProjectId(data.projects[0].id);
         }
       })
-      .catch((err: any) => setError(err.message || 'Failed to load statistics'))
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to load statistics')))
       .finally(() => setLoading(false));
-  };
+  }, [selectedProjectId]);
 
   const loadTrend = useCallback(() => {
     setTrendLoading(true);
@@ -72,7 +72,7 @@ export const StatsPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   useEffect(() => {
     loadTrend();

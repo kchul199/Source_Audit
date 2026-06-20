@@ -1,37 +1,21 @@
 {
   "repositories": [
     {
-      "name": "validation-test-repo",
-      "repoUrl": "https://github.com/test-org/validation-test-repo",
-      "githubToken": "ghp_verificationtokenvalue98765",
-      "webhookSecret": "webhook_verification_secret_98765",
+      "name": "kchul199 전체 GitHub 계정",
+      "repoUrl": "https://github.com/kchul199/*",
       "allowPRs": true,
       "allowPush": true,
       "adminUsers": [
         "kchul199"
       ],
-      "branchFilter": "main,release",
+      "branchFilter": "*",
       "active": true
     },
     {
-      "name": "integration-test-repo-updated",
-      "repoUrl": "https://github.com/test-org/integration-test-repo",
-      "githubToken": "ghp_secret_token_1234567890",
-      "webhookSecret": "my_test_webhook_secret",
-      "allowPRs": false,
-      "allowPush": true,
-      "adminUsers": [
-        "kchul199",
-        "approver-user"
-      ],
-      "branchFilter": "main,release/*",
-      "active": true
-    },
-    {
-      "name": "test-repo",
-      "repoUrl": "https://github.com/owner/test-repo",
-      "githubToken": "ghp_test_token_value_123",
-      "webhookSecret": "webhook_test_secret_123",
+      "name": "Source_Audit Public",
+      "repoUrl": "https://github.com/kchul199/Source_Audit.git",
+      "githubToken": "",
+      "webhookSecret": "",
       "allowPRs": true,
       "allowPush": true,
       "adminUsers": [],

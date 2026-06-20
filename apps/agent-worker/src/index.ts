@@ -8,6 +8,13 @@ import { Octokit } from 'octokit';
 import { db, AuditStatus, createLogger } from '@src-audit/shared';
 import { OpenAIAgent } from './agent';
 import { Sandbox } from './sandbox';
+import {
+  buildProjectContext,
+  classifySandboxFailure,
+  extractAddedLinesByFile,
+  formatContextBundle,
+  validateAiFindings,
+} from './context';
 
 // Load .env from root (single entry point)
 dotenv.config({ path: path.join(process.cwd(), '.env') });
@@ -26,6 +33,33 @@ const API_INTERNAL_URL = process.env.API_INTERNAL_URL || 'http://localhost:3001/
 const MAX_DIFF_SIZE = 100_000; // ~100KB limit to prevent token overflow
 const MAX_HEALING_ITERATIONS = 3;
 
+function sanitizeSecret(value: string, secret?: string) {
+  if (!secret) return value;
+  return value.split(secret).join('[REDACTED]');
+}
+
+function runGit(args: string[], cwd?: string, token?: string) {
+  try {
+    execFileSync('git', args, { cwd });
+  } catch (error: any) {
+    const message = sanitizeSecret(error.message || 'Git command failed', token);
+    const stderr = sanitizeSecret(error.stderr?.toString?.() || '', token);
+    throw new Error([message, stderr].filter(Boolean).join('\n'));
+  }
+}
+
+function pickRunner(strategy: unknown): string | undefined {
+  if (!strategy || typeof strategy !== 'object') return undefined;
+  const framework = String((strategy as { framework?: unknown }).framework || '').toLowerCase();
+  if (framework.includes('vitest')) return 'vitest';
+  if (framework.includes('mocha')) return 'mocha';
+  if (framework.includes('node')) return 'node:test';
+  if (framework.includes('jest')) return 'jest';
+  if (framework.includes('pytest')) return 'pytest';
+  if (framework.includes('go')) return 'go test';
+  return undefined;
+}
+
 async function notifyStatus(auditId: string, status: string) {
   try {
     await fetch(API_INTERNAL_URL, {
@@ -43,24 +77,25 @@ async function createGitHubCheck(
   owner: string,
   repo: string,
   commitHash: string,
-  findingsCount: number
+  findingsCount: number,
+  auditStatus: 'success' | 'failure',
+  detail: string,
 ) {
   try {
-    const conclusion = findingsCount > 0 ? 'failure' : 'success';
     await octokit.rest.checks.create({
       owner,
       repo,
       name: 'AI Code Audit',
       head_sha: commitHash,
       status: 'completed',
-      conclusion: conclusion,
+      conclusion: auditStatus,
       completed_at: new Date().toISOString(),
       output: {
-        title: findingsCount > 0 ? 'AI Audit: Issues Detected' : 'AI Audit: Passed',
-        summary: `AI Code Audit scanned the changes and found ${findingsCount} quality/security issues.`,
+        title: auditStatus === 'failure' ? 'AI Audit: Issues Detected or Verification Failed' : 'AI Audit: Passed',
+        summary: `AI Code Audit found ${findingsCount} quality/security issues. ${detail}`,
       },
     });
-    log.info('Successfully updated GitHub Check Run', { repo, commitHash, conclusion });
+    log.info('Successfully updated GitHub Check Run', { repo, commitHash, conclusion: auditStatus });
   } catch (err: any) {
     log.error('Failed to create/update GitHub Check Run', { error: err.message });
   }
@@ -71,11 +106,13 @@ async function postPRComments(
   owner: string,
   repo: string,
   prNumber: number,
-  findings: any[]
+  findings: any[],
+  diff: string,
 ) {
   if (findings.length === 0) return;
 
   try {
+    const addedLines = extractAddedLinesByFile(diff);
     const comments = findings
       .filter((f) => f.filePath && f.filePath !== 'N/A')
       .map((f) => {
@@ -83,6 +120,9 @@ async function postPRComments(
         if (f.lineRange) {
           const match = f.lineRange.match(/\d+/);
           if (match) line = parseInt(match[0], 10);
+        }
+        if (!addedLines.get(f.filePath)?.has(line)) {
+          return null;
         }
         return {
           path: f.filePath,
@@ -92,7 +132,8 @@ async function postPRComments(
             f.suggestion ? `**Suggestion:**\n\`\`\`\n${f.suggestion}\n\`\`\`` : ''
           }`,
         };
-      });
+      })
+      .filter(Boolean) as Array<{ path: string; line: number; side: 'RIGHT'; body: string }>;
 
     if (comments.length > 0) {
       await octokit.rest.pulls.createReview({
@@ -104,6 +145,15 @@ async function postPRComments(
         body: `🤖 **Src-Audit AI Analysis Completed.** Found ${findings.length} issues. Please review the inline comments.`,
       });
       log.info('Successfully posted PR review comments', { repo, prNumber, count: comments.length });
+    } else {
+      const body = `🤖 **Src-Audit AI Analysis Completed.** Found ${findings.length} issues, but none could be safely attached to changed RIGHT-side diff lines:\n\n` +
+        findings.map((f) => `- **[${f.severity}] ${f.category}** in \`${f.filePath}\`: ${f.description}`).join('\n');
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: prNumber,
+        body,
+      });
     }
   } catch (err: any) {
     log.error('Failed to post PR review comments, falling back to a global PR comment', {
@@ -144,9 +194,23 @@ const worker = new Worker(
     }
     const project = auditRecord.project;
     const token = project.githubToken || process.env.GITHUB_TOKEN;
+    if (!token) {
+      throw new Error('GitHub token is required to fetch diffs, clone repositories, and publish audit checks');
+    }
     const jobOctokit = new Octokit({ auth: token });
 
     try {
+      if (job.attemptsMade > 0) {
+        log.warn('Cleaning partial audit results before queue retry', {
+          auditId,
+          attemptsMade: job.attemptsMade,
+        });
+        await db.$transaction([
+          db.analysisResult.deleteMany({ where: { auditId } }),
+          db.testResult.deleteMany({ where: { auditId } }),
+        ]);
+      }
+
       // 1. Update status to ANALYZING
       await db.audit.update({
         where: { id: auditId },
@@ -174,69 +238,99 @@ const worker = new Worker(
         diff = data as unknown as string;
       }
 
-      // 3. Enforce diff size limit to prevent token overflow
+      // 3. Keep the full diff for parsing/validation; limit only the LLM prompt input.
+      const fullDiff = diff;
+      const llmDiff = diff.length > MAX_DIFF_SIZE
+        ? diff.substring(0, MAX_DIFF_SIZE) + '\n\n... [truncated — diff exceeded 100KB]'
+        : diff;
       if (diff.length > MAX_DIFF_SIZE) {
-        log.warn('Diff too large, truncating', { auditId, originalSize: diff.length });
-        diff = diff.substring(0, MAX_DIFF_SIZE) + '\n\n... [truncated — diff exceeded 100KB]';
-      }
-
-      // 4. Fetch Context (GEMINI.md) if it exists
-      let context = '';
-      try {
-        const { data: geminiContent } = await jobOctokit.rest.repos.getContent({
-          owner,
-          repo: repoName,
-          path: 'GEMINI.md',
+        log.warn('Diff too large for a single prompt, truncating LLM input only', {
+          auditId,
+          originalSize: diff.length,
         });
-        if ('content' in geminiContent) {
-          context = Buffer.from(geminiContent.content, 'base64').toString();
-        }
-      } catch (e) {
-        log.debug('No GEMINI.md found', { repo });
       }
 
-      // Combine GEMINI.md context with project customPromptRules
-      const mergedContext = [context, project.customPromptRules].filter(Boolean).join('\n\n');
+      // 4. Setup workspace before analysis so the AI receives real file context.
+      if (!fs.existsSync(path.dirname(workspacePath))) {
+        fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
+      }
+      if (fs.existsSync(workspacePath)) {
+        fs.rmSync(workspacePath, { recursive: true, force: true });
+      }
+
+      const repoUrl = `https://x-access-token:${token}@github.com/${repo}.git`;
+      log.info('Cloning repository', { repo, workspacePath });
+      runGit(['clone', '--depth', '1', '--no-checkout', repoUrl, workspacePath], undefined, token);
+      runGit(['fetch', '--depth', '1', 'origin', commitHash], workspacePath, token);
+      runGit(['checkout', '--detach', commitHash], workspacePath, token);
+
+      // 5. Gather full context and static evidence from the checked-out commit.
+      const contextBundle = buildProjectContext(workspacePath, fullDiff);
+      const formattedContext = formatContextBundle(contextBundle);
+      const mergedContext = [formattedContext, project.customPromptRules].filter(Boolean).join('\n\n');
       const model = project.llmModel || 'gpt-4o';
 
-      // 5. AI Analysis
-      const findings = await agent.analyzeCode(auditId, repo, diff, mergedContext, model);
+      // 6. AI Analysis with evidence validation
+      const aiFindings = await agent.analyzeCode(
+        auditId,
+        repo,
+        llmDiff,
+        mergedContext,
+        model,
+        contextBundle.staticFindings,
+      );
+      const findings = validateAiFindings(
+        [...contextBundle.staticFindings, ...aiFindings],
+        workspacePath,
+        fullDiff,
+      );
 
-      // Create Check Run / Commit Status on GitHub
-      await createGitHubCheck(jobOctokit, owner, repoName, commitHash, findings.length);
+      if (findings.length > 0) {
+        await db.analysisResult.createMany({
+          data: findings.map((finding) => ({
+            auditId,
+            category: finding.category || 'UNKNOWN',
+            severity: finding.severity || 'LOW',
+            filePath: finding.filePath || 'unknown',
+            lineRange: finding.lineRange ?? null,
+            description: finding.description || '',
+            suggestion: finding.suggestion ?? null,
+            sourceSnippet: finding.sourceSnippet ?? null,
+          })),
+        });
+      }
 
       // Post Review Comments to PR if enabled and it's a PR event
       if (project.enablePRComments && prNumber) {
-        await postPRComments(jobOctokit, owner, repoName, prNumber, findings);
+        await postPRComments(jobOctokit, owner, repoName, prNumber, findings, fullDiff);
       }
 
-      // 6. Update status to GENERATING_TESTS
+      // 7. Update status to GENERATING_TESTS
       await db.audit.update({
         where: { id: auditId },
         data: { status: AuditStatus.GENERATING_TESTS },
       });
       await notifyStatus(auditId, AuditStatus.GENERATING_TESTS);
 
-      // 7. AI Test Generation
+      // 8. Generate a test strategy first, then generate code from that strategy.
+      const testStrategy = await agent.generateTestStrategy(repo, llmDiff, mergedContext, model);
       const { testCode: initialTestCode, testResultId } = await agent.generateTestCode(
-        auditId, repo, diff, mergedContext, model,
+        auditId, repo, llmDiff, mergedContext, model, testStrategy,
       );
 
-      // 8. Update status to EXECUTING_SANDBOX
+      await db.testResult.update({
+        where: { id: testResultId },
+        data: {
+          errorAnalysis: `Test strategy: ${JSON.stringify(testStrategy).slice(0, 4000)}`,
+        },
+      });
+
+      // 9. Update status to EXECUTING_SANDBOX
       await db.audit.update({
         where: { id: auditId },
         data: { status: AuditStatus.EXECUTING_SANDBOX },
       });
       await notifyStatus(auditId, AuditStatus.EXECUTING_SANDBOX);
-
-      // 9. Setup workspace (Clone shallow) using execFileSync for safety
-      if (!fs.existsSync(path.dirname(workspacePath))) {
-        fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
-      }
-
-      const repoUrl = `https://x-access-token:${token}@github.com/${repo}.git`;
-      log.info('Cloning repository', { repo, workspacePath });
-      execFileSync('git', ['clone', '--depth', '1', repoUrl, workspacePath]);
 
       // 10. Sandbox Execution & Self-Healing Loop with iteration tracking
       let currentTestCode = initialTestCode;
@@ -246,9 +340,22 @@ const worker = new Worker(
       while (iteration <= MAX_HEALING_ITERATIONS) {
         log.info('Sandbox iteration', { auditId, iteration, maxIterations: MAX_HEALING_ITERATIONS });
 
-        const sandboxResult = await sandbox.runTest(workspacePath, currentTestCode);
+        const sandboxResult = await sandbox.runTest(
+          workspacePath,
+          currentTestCode,
+          contextBundle.validationCommands.map((command) => command.command),
+          pickRunner(testStrategy),
+          contextBundle.changedFiles.map((file) => file.filePath),
+        );
         const isPassed = sandboxResult.exitCode === 0;
         const isFinalIteration = iteration === MAX_HEALING_ITERATIONS;
+        const failureClass = classifySandboxFailure(sandboxResult);
+        const validationClass = sandboxResult.validation
+          ? classifySandboxFailure(sandboxResult.validation)
+          : undefined;
+        const validationFailed = Boolean(
+          sandboxResult.validation && sandboxResult.validation.exitCode !== 0,
+        );
 
         // Record healing iteration for full history tracking
         await db.healingIteration.create({
@@ -259,6 +366,10 @@ const worker = new Worker(
             exitCode: sandboxResult.exitCode,
             stdout: sandboxResult.stdout?.substring(0, 50_000) || null,
             stderr: sandboxResult.stderr?.substring(0, 50_000) || null,
+            errorAnalysis: [
+              isPassed ? null : failureClass,
+              validationClass && validationClass !== 'PASSED' ? `PROJECT_VALIDATION:${validationClass}` : null,
+            ].filter(Boolean).join('\n') || null,
           },
         });
 
@@ -271,6 +382,10 @@ const worker = new Worker(
             stdout: sandboxResult.stdout?.substring(0, 50_000) || null,
             stderr: sandboxResult.stderr?.substring(0, 50_000) || null,
             iterationCount: iteration,
+            errorAnalysis: [
+              isPassed ? undefined : failureClass,
+              validationClass && validationClass !== 'PASSED' ? `PROJECT_VALIDATION:${validationClass}` : undefined,
+            ].filter(Boolean).join('\n') || undefined,
             status: isPassed
               ? 'PASSED'
               : isFinalIteration
@@ -281,15 +396,24 @@ const worker = new Worker(
 
         if (isPassed) {
           log.info('Test PASSED', { auditId, iteration });
-          finalResult = 'PASSED';
+          finalResult = validationFailed ? 'VALIDATION_FAILED' : 'PASSED';
 
           // If healed after first attempt, mark as HEALED
-          if (iteration > 1) {
+          if (iteration > 1 && !validationFailed) {
             await db.testResult.update({
               where: { id: testResultId },
               data: { status: 'HEALED' },
             });
             finalResult = 'HEALED';
+          }
+          if (validationFailed) {
+            await db.testResult.update({
+              where: { id: testResultId },
+              data: {
+                status: 'FAILED',
+                errorAnalysis: `PROJECT_VALIDATION:${validationClass}`,
+              },
+            });
           }
           break;
         }
@@ -302,7 +426,7 @@ const worker = new Worker(
             .substring(0, 10_000); // Limit error context sent to AI
 
           const { healedCode, errorAnalysis } = await agent.healTestCode(
-            repo, diff, currentTestCode, errorOutput, mergedContext, model,
+            repo, llmDiff, currentTestCode, errorOutput, mergedContext, model,
           );
 
           // Store errorAnalysis in the healing iteration
@@ -329,7 +453,21 @@ const worker = new Worker(
       }
 
       // 11. Update final Audit Status
-      const finalStatus = finalResult === 'FAILED' ? AuditStatus.FAILED : AuditStatus.COMPLETED;
+      const finalStatus = finalResult === 'FAILED' || finalResult === 'VALIDATION_FAILED'
+        ? AuditStatus.FAILED
+        : AuditStatus.COMPLETED;
+      const finalCheckStatus = finalStatus === AuditStatus.COMPLETED && findings.length === 0
+        ? 'success'
+        : 'failure';
+      await createGitHubCheck(
+        jobOctokit,
+        owner,
+        repoName,
+        commitHash,
+        findings.length,
+        finalCheckStatus,
+        `Final audit status: ${finalStatus}. Test result: ${finalResult || 'UNKNOWN'}.`,
+      );
       await db.audit.update({
         where: { id: auditId },
         data: {
@@ -346,6 +484,13 @@ const worker = new Worker(
         where: { id: auditId },
         data: { status: AuditStatus.FAILED },
       });
+      await db.testResult.updateMany({
+        where: { auditId, status: 'RUNNING' },
+        data: {
+          status: 'FAILED',
+          stderr: `Audit failed before sandbox completion: ${error.message || 'Unknown error'}`,
+        },
+      });
       await notifyStatus(auditId, AuditStatus.FAILED);
       throw error;
     } finally {
@@ -361,7 +506,7 @@ const worker = new Worker(
   },
   {
     connection: connection as any,
-    concurrency: 2, // Limit concurrent jobs to prevent resource exhaustion
+    concurrency: 1, // Keep sandbox workspaces isolated and prevent duplicate audit races
     limiter: {
       max: 10,
       duration: 60_000, // Max 10 jobs per minute

@@ -59,6 +59,7 @@ services:
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-src_audit}?schema=public"
       REDIS_URL: "redis://redis:6379"
+      API_INTERNAL_URL: "http://webhook-server:3001/api/internal/audit-event"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

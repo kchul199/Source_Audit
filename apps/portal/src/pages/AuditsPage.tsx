@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { fetchAudits } from '../api/client';
+import { fetchAudits, getErrorMessage } from '../api/client';
 import { StatusBadge } from '../components/StatusBadge';
 import {
   GitPullRequest, GitCommit, ArrowRight,
@@ -37,7 +37,7 @@ export const AuditsPage: React.FC = () => {
     setSelectedAuditIds([]); // Reset selection on page/project change
     fetchAudits(projectId, currentPage, 15)
       .then(setResult)
-      .catch((err: any) => setError(err.message || 'Failed to fetch audits'))
+      .catch((err: unknown) => setError(getErrorMessage(err, 'Failed to fetch audits')))
       .finally(() => setLoading(false));
   }, [projectId, currentPage]);
 
